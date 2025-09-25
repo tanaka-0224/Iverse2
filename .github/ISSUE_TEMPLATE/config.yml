@@ -1,0 +1,8 @@
+# Issue作成時のテンプレート設定
+defaults:
+  - template: "task.md"
+    name: "タスク"
+    about: "取り組むタスクを記載する"
+  - template: "feature_request.md"
+    name: "機能リクエスト"
+    about: "新機能のアイデアを提案する"
