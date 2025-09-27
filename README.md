@@ -12,7 +12,7 @@
 3. install ボタンを押す
 4. vscode 画面右下に「Go Live」というボタンが増え、押したら自動的にサイトが開く(url：http://127.0.0.1:5500/ )
 
-- GitHub Pages で公開中(url：https://tanaka-0224.github.io/Iverse/)
+- 公開中(url：https://cmez2u4bpnhzy0uklzjgm00sv.bolt.host/)
 
 👉 最初は GitHub Pages、Next.jsとかに移行後、動作確認が安定したら Netlify とか Vercel に移行。要検討
 
