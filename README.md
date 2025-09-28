@@ -29,7 +29,7 @@
 --------
 branch 命名規則：feature/issue-[実施する issue 番号]
 
-1. 取り組む issue を決める(url：https://github.com/users/tanaka-0224/projects/5/views/1)
+1. 取り組む issue を決める(url：https://github.com/users/tanaka-0224/projects/9/views/1)
    ＊取り組む issue を 1 と仮定
 
 2. 自分がいるブランチが develop であることを確認(ターミナル：git branch→develop の横に*があることを確認)
