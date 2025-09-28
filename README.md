@@ -4,13 +4,10 @@
 
 ## 開発環境
 
-- VS Code + Live Server 推奨
-  Live Server の導入と使用方法
-
-1. vscode 左側の拡張機能(田に似たアイコン)を押す
-2. 開いたサイドバーの上の検索バーに「Live Server Ritwick Dey」を入力して検索
-3. install ボタンを押す
-4. vscode 画面右下に「Go Live」というボタンが増え、押したら自動的にサイトが開く(url：http://127.0.0.1:5500/ )
+1. vscodeのターミナルでIverse2にいることを確認
+2. npm installをターミナルにて実行
+3. npm run devをターミナルにて実行
+4. 次のURLで動作確認　url：http://localhost:5173/
 
 - 公開中(url：https://cmez2u4bpnhzy0uklzjgm00sv.bolt.host/)
 
@@ -22,9 +19,9 @@
 この欄は最初の一回だけ
 
 1. リモートリポジトリをローカルにクローン
-   git clone https://github.com/tanaka-0224/Iverse.git
+   git clone https://github.com/tanaka-0224/Iverse2.git
 2. ディレクトリに移動する: クローンしたリポジトリのディレクトリに移動
-   ターミナルにコピペ：cd Iverse
+   ターミナルにコピペ：cd Iverse2
 3. ブランチを確認する: 現在のブランチを確認します。クローン直後は通常mainブランチにいることを確認
    ターミナルにコピペ：git branch
 4. developブランチに切り替える: 開発はdevelopブランチから始めるので、まずdevelopブランチに切り替え
@@ -58,20 +55,6 @@ branch 命名規則：feature/issue-[実施する issue 番号]
 初期
 
 ### フロントエンド
-* HTML
-* CSS
-* JavaScript
-
-### バックエンド
-* Firebase
-
-### その他ツール
-* Git
-* GitHub
-* Figma
-
-理想
-### フロントエンド
 * TypeScript
 * React
 * Next.js
@@ -81,66 +64,101 @@ branch 命名規則：feature/issue-[実施する issue 番号]
 * Git
 * Github
 * Figma
+* bolt
 
+## ルートディレクトリ構成
 
-## ファイル構成
+### 設定ファイル
+- **`package.json`** - プロジェクトの依存関係とスクリプトを定義
+- **`vite.config.ts`** - Viteの設定ファイル（ビルドツール設定）
+- **`tsconfig.json`** - TypeScriptの設定ファイル
+- **`tailwind.config.js`** - Tailwind CSSの設定ファイル
+- **`eslint.config.js`** - ESLintの設定ファイル（コード品質管理）
+- **`postcss.config.js`** - PostCSSの設定ファイル
 
-```text
-tomoya824.github.io/
-├─ index.html                # エントリーポイント。断片HTML/CSSを読み込み後、app.jsを起動
-├─ scripts/
-│  ├─ app.js                 # アプリ初期化・ナビゲーション・ログイン/ログアウト処理
-│  ├─ core/
-│  │  ├─ dom.js             # DOMユーティリティ：getViews, show, setActiveNav
-│  │  └─ state.js           # アプリ状態・推薦ロジック・LocalStorage保存/復元
-│  └─ views/
-│     ├─ ai.js              # 「AIおすすめ」ビューの描画・操作
-│     ├─ chat.js            # チャットビューの初期化・送受信（デモ応答）
-│     ├─ home.js            # マイページ：プロフィール保存/反映
-│     └─ profile-modal.js   # プロフィール詳細モーダルの開閉/接続導線
-├─ styles/
-│  ├─ base.css              # 共通スタイル
-│  ├─ ai.css                # AIおすすめ用スタイル
-│  ├─ chat.css              # チャット用スタイル
-│  ├─ home.css              # マイページ用スタイル
-│  └─ modal.css             # モーダル用スタイル
-└─ views/
-   ├─ ai.html               # AIおすすめビュー断片（id="view-ai"）
-   ├─ chat.html             # チャットビュー断片（id="view-chat"）
-   ├─ home.html             # マイページ断片（id="view-home"）
-   └─ profile-modal.html    # プロフィール詳細モーダル断片
-```
+### その他のファイル
+- **`index.html`** - アプリケーションのエントリーポイントHTML
+- **`README.md`** - プロジェクトの説明書
+- **`LICENSE`** - ライセンスファイル
 
-## 主要ファイルの役割
+## src/ ディレクトリ構成
 
-- `index.html`
-  - `data-include` で `views/*.html` を取得し、必要な CSS（`data-css`）を動的に `<head>` へ追加。
-  - すべての読み込み完了後に `scripts/app.js` を ES Modules としてロードして起動。
-- `scripts/app.js`
-  - アプリ全体の初期化、ログイン/ログアウト、ナビゲーション（`getViews`/`show`/`setActiveNav`）の制御。
-  - 各ビューの初期化関数を呼び出し、状態に応じた初期表示を切り替え。
-- `scripts/core/state.js`
-  - `state`（ユーザー/自分の情報）と疑似実績の初期化、ローカル保存（`save`）/復元（`load`）。
-  - 推薦スコア計算（`matchScore`, `getTopMatches`）、グルーピング（`makeGroupsByGoal`）等のロジック。
-- `scripts/core/dom.js`
-  - ビューDOMの取得（`getViews`）、ビュー表示切替（`show`）、ナビ活性化（`setActiveNav`）。
-- `scripts/views/home.js`
-  - 目的/スキルの保存（`initHome`）と入力欄への反映（`fillHomeFromState`）。
-- `scripts/views/ai.js`
-  - おすすめ個人/グループのリスト描画（`renderAI`）。プロフィールモーダル/チャット起動導線を提供。
-- `scripts/views/chat.js`
-  - チャットの初期化、送信処理、デモ応答の表示。送信時に実績を更新して保存。
-- `scripts/views/profile-modal.js`
-  - モーダルの開閉、対象ユーザーの表示、接続ボタンでチャットへ遷移。
+### エントリーポイント
+- **`main.tsx`** - アプリケーションのエントリーポイント（Reactアプリの起動）
+- **`App.tsx`** - メインアプリケーションコンポーネント（認証状態管理、画面切り替え）
 
-## 拡張/開発のヒント
+### ライブラリ・設定
+- **`lib/supabase.ts`** - Supabaseクライアントの設定と初期化
+- **`types/database.types.ts`** - データベースの型定義（TypeScript用）
+- **`index.css`** - グローバルスタイルシート
 
-- 新しいビューを追加するには：
-  1) `views/xxx.html` と対応する CSS を `styles/xxx.css` に作成。
-  2) `index.html` の `<main>` に `<div data-include="views/xxx.html" data-css="styles/xxx.css"></div>` を追加。
-  3) 振る舞いが必要なら `scripts/views/xxx.js` を作成し、必要に応じて `scripts/app.js` から初期化を呼び出す。
-  4) ナビボタンを増やす場合は、`index.html` の `<header>` にボタンを追加し、`data-target` にビューIDを設定。
+### カスタムフック
+- **`hooks/useAuth.ts`** - 認証関連のカスタムフック（ログイン、ログアウト、ユーザー状態管理）
+- **`hooks/useProfile.ts`** - プロフィール関連のカスタムフック
 
-## データ保存
+### コンポーネント構成
 
-- ブラウザの LocalStorage（キー: `iverse_state_v1`）を使用。`state.me` と `state.users` を保存/復元します。
+#### 認証関連 (`components/auth/`)
+- **`AuthForm.tsx`** - ログイン・新規登録フォームコンポーネント
+
+#### ナビゲーション (`components/navigation/`)
+- **`BottomNav.tsx`** - ボトムナビゲーションバーコンポーネント
+
+#### 投稿関連 (`components/posts/`)
+- **`CreatePostScreen.tsx`** - 投稿作成画面コンポーネント
+- **`PostBoardScreen.tsx`** - 投稿一覧画面コンポーネント
+
+#### チャット関連 (`components/chat/`)
+- **`ChatScreen.tsx`** - チャット画面コンポーネント
+
+#### アカウント関連 (`components/account/`)
+- **`AccountScreen.tsx`** - アカウント設定画面コンポーネント
+
+#### おすすめ機能 (`components/recommendations/`)
+- **`RecommendationsScreen.tsx`** - おすすめ画面コンポーネント
+- **`RecommendationCard.tsx`** - おすすめカードコンポーネント
+
+#### UIコンポーネント (`components/ui/`)
+- **`Button.tsx`** - 再利用可能なボタンコンポーネント
+- **`Input.tsx`** - 入力フィールドコンポーネント
+- **`TextArea.tsx`** - テキストエリアコンポーネント
+- **`LoadingSpinner.tsx`** - ローディングスピナーコンポーネント
+
+## 主要な技術スタック
+
+### フロントエンド
+- **React 18** - UIライブラリ
+- **TypeScript** - 型安全性のための言語
+- **Vite** - 高速なビルドツール
+- **Tailwind CSS** - ユーティリティファーストのCSSフレームワーク
+
+### バックエンド・データベース
+- **Supabase** - バックエンドサービス（認証、データベース、リアルタイム機能）
+
+### 開発ツール
+- **ESLint** - コード品質管理
+- **PostCSS** - CSS処理ツール
+- **Lucide React** - アイコンライブラリ
+
+## データベース構造
+
+### 主要テーブル
+- **`profiles`** - ユーザープロフィール情報
+- **`posts`** - 投稿データ
+- **`likes`** - いいね機能
+- **`matches`** - マッチング機能
+- **`chat_rooms`** - チャットルーム
+- **`chat_participants`** - チャット参加者
+- **`messages`** - メッセージデータ
+
+## チーム開発での注意点
+
+### 環境設定
+1. **環境変数**: `.env`ファイルにSupabaseのURLとキーを設定
+2. **依存関係**: `npm install`でパッケージをインストール
+3. **開発サーバー**: `npm run dev`で開発サーバーを起動
+
+### 開発フロー
+1. **ブランチ**: 機能ごとにブランチを作成
+2. **コミット**: 意味のあるコミットメッセージを記述
+3. **プルリクエスト**: コードレビュー後にマージ
