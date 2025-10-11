@@ -56,6 +56,7 @@ base repository:はtanaka-0224/Iverse2に、
 baseはdevelopに変更、
 head repository:はtanaka-0224/Iverse2に、
 compareはfeature/issue-1になってるのを確認し、
+(base repository:はtanaka-0224/Iverse2に変更した際にリロード入って、base:develop　compare: featre/issue-1になっていてもOK)
 テンプレに沿って作成
 
 8. Review 依頼を出す(田中か藺牟田)
