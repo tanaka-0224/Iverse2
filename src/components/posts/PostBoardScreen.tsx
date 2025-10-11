@@ -1,21 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import { Users, Calendar, User, MessageCircle } from 'lucide-react';
 
-interface Post {
+interface Board {
   id: string;
   title: string;
-  category: string;
-  description: string;
-  max_participants: number | null;
-  current_participants: number;
-  created_at: string;
-  profiles: {
-    display_name: string | null;
-    avatar_url: string | null;
+  purpose: string | null;
+  limit_count: number | null;
+  created_at: string | null;
+  users: {
+    name: string;
+    photo: string | null;
   };
 }
 
@@ -23,106 +21,118 @@ interface PostBoardScreenProps {
   onNavigate: (screen: string) => void;
 }
 
+type BoardListType = 'my_posts' | 'liked_posts'; // 💡 追加: 表示モードを定義
+
 export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
   const { user } = useAuth();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [boards, setBoards] = useState<Board[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeList, setActiveList] = useState<BoardListType>('my_posts'); // 💡 追加: 現在の表示モード
 
   useEffect(() => {
-    fetchPosts();
-  }, []);
+    fetchBoards(activeList);
+  }, [user, activeList]); 
 
-  const fetchPosts = async () => {
+  // const fetchBoards = async () => {
+  //   try {
+  //     const { data, error } = await supabase
+  //       .from('board')
+  //       .select(`
+  //         id,
+  //         title,
+  //         purpose,
+  //         limit_count,
+  //         created_at,
+  //         users (
+  //           name,
+  //           photo
+  //         )
+  //       `)
+  //       .order('created_at', { ascending: false });
+
+  //     if (error) throw error;
+  //     setBoards(data || []);
+  //   } catch (error) {
+  //     console.error('Error fetching boards:', error);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+  const fetchBoards = async (listType: BoardListType) => {
+    if (!user) {
+        setLoading(false);
+        return;
+    }
+    setLoading(true);
+    let query = supabase.from('board').select(`
+        id, title, purpose, limit_count, created_at,
+        users ( name, photo )
+    `);
+
+    // 💡 クエリの切り替えロジック
+    if (listType === 'my_posts') {
+        // 自分の作成した募集ボードのみを取得
+        query = query.eq('user_id', user.id);
+        
+    } else if (listType === 'liked_posts') {
+        // いいねしたボードのみを取得 (LIKEテーブルを結合)
+        // query = query.in('id', supabase.from('like').select('board_id').eq('user_id', user.id)
+        // );
+        const { data: likedData } = await supabase
+        .from('like')
+        .select('board_id')
+        .eq('user_id', user.id);
+    
+        const likedBoardIds = likedData?.map(item => item.board_id) || [];
+        
+        // 取得したIDの配列を .in() に渡す
+        query = query.in('id', likedBoardIds);
+    }
+
     try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          id,
-          title,
-          category,
-          description,
-          max_participants,
-          current_participants,
-          created_at,
-          profiles (
-            display_name,
-            avatar_url
-          )
-        `)
-        .eq('status', 'published')
-        .order('created_at', { ascending: false });
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
-      setPosts(data || []);
+      setBoards(data || []);
     } catch (error) {
-      console.error('Error fetching posts:', error);
+      console.error(`Error fetching ${listType} boards:`, error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleJoinProject = async (postId: string) => {
+  const handleJoinBoard = async (boardId: string) => {
     if (!user) return;
 
     try {
-      // Check if user is already in a chat room for this post
-      const { data: existingRoom } = await supabase
-        .from('chat_participants')
-        .select('room_id, chat_rooms!inner(post_id)')
+      // Check if user is already a participant
+      const { data: existingParticipant } = await supabase
+        .from('board_participants')
+        .select('id')
         .eq('user_id', user.id)
-        .eq('chat_rooms.post_id', postId);
+        .eq('board_id', boardId)
+        .single();
 
-      if (existingRoom && existingRoom.length > 0) {
+      if (existingParticipant) {
         onNavigate('chat');
         return;
       }
 
-      // Create or join chat room for this post
-      let chatRoomId;
-      const { data: existingChatRoom } = await supabase
-        .from('chat_rooms')
-        .select('id')
-        .eq('post_id', postId)
-        .eq('type', 'project')
-        .single();
-
-      if (existingChatRoom) {
-        chatRoomId = existingChatRoom.id;
-      } else {
-        const { data: newChatRoom, error: chatRoomError } = await supabase
-          .from('chat_rooms')
-          .insert({
-            name: `プロジェクト: ${posts.find(p => p.id === postId)?.title}`,
-            type: 'project',
-            post_id: postId,
-          })
-          .select()
-          .single();
-
-        if (chatRoomError) throw chatRoomError;
-        chatRoomId = newChatRoom.id;
-      }
-
-      // Add user to chat room
+      // Add user as a participant
       const { error: participantError } = await supabase
-        .from('chat_participants')
+        .from('board_participants')
         .insert({
-          room_id: chatRoomId,
           user_id: user.id,
+          board_id: boardId,
+          status: 'accepted',
         });
 
       if (participantError) throw participantError;
 
-      // Update participant count
-      const { error: updateError } = await supabase.rpc('increment_participants', {
-        post_id: postId
-      });
-
-      if (updateError) throw updateError;
-
       onNavigate('chat');
     } catch (error) {
-      console.error('Error joining project:', error);
+      console.error('Error joining board:', error);
     }
   };
 
@@ -143,6 +153,31 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
     );
   }
 
+  // 💡 募集がない場合のロジックを理想に合わせて変更
+  if (boards.length === 0) {
+    if (activeList === 'my_posts') {
+        return (
+            // 募集を作成していない場合の表示と、作成画面への誘導
+            <div className="text-center py-12 space-y-4">
+                <h3 className="text-lg font-medium text-gray-900">募集を作成しましょう</h3>
+                <p className="text-gray-500">あなたのプロジェクトを公開できます</p>
+                <Button onClick={() => onNavigate('createpost')}>新規募集作成</Button>
+            </div>
+        );
+    }
+    if (activeList === 'liked_posts') {
+      return (
+          // いいねした募集がない場合の表示
+          <div className="text-center py-12 space-y-4">
+              <h3 className="text-lg font-medium text-gray-900">いいねした募集がありません</h3>
+              <p className="text-gray-500">おすすめ画面で気になるボードを見つけてみましょう</p>
+              <Button onClick={() => onNavigate('recommendations')}>おすすめを見る</Button>
+          </div>
+      );
+  }
+
+  }
+
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
@@ -153,29 +188,29 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         <p className="text-gray-600">参加したいプロジェクトを見つけよう</p>
       </div>
 
-      <div className="space-y-4">
-        {posts.length === 0 ? (
+      {/* <div className="space-y-4">
+        {boards.length === 0 ? (
           <div className="text-center py-12 space-y-4">
             <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
               <Users className="h-12 w-12 text-gray-400" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-lg font-medium text-gray-900">募集がありません</h3>
-              <p className="text-gray-500">新しい募集が投稿されるまでお待ちください</p>
+              <h3 className="text-lg font-medium text-gray-900">ボードがありません</h3>
+              <p className="text-gray-500">新しいボードが作成されるまでお待ちください</p>
             </div>
           </div>
         ) : (
-          posts.map((post) => (
+          boards.map((board) => (
             <div
-              key={post.id}
+              key={board.id}
               className="bg-white rounded-xl shadow-md p-6 space-y-4 border border-gray-100 hover:shadow-lg transition-all duration-300"
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center space-x-3">
                   <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                    {post.profiles.avatar_url ? (
+                    {board.users.photo ? (
                       <img 
-                        src={post.profiles.avatar_url} 
+                        src={board.users.photo} 
                         alt="Avatar" 
                         className="w-full h-full rounded-full object-cover"
                       />
@@ -185,23 +220,23 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
                   </div>
                   <div>
                     <p className="font-medium text-gray-900">
-                      {post.profiles.display_name || 'Anonymous'}
+                      {board.users.name}
                     </p>
                     <div className="flex items-center space-x-2 text-sm text-gray-500">
                       <Calendar className="h-4 w-4" />
-                      <span>{formatDate(post.created_at)}</span>
+                      <span>{board.created_at ? formatDate(board.created_at) : '不明'}</span>
                     </div>
                   </div>
                 </div>
                 
                 <span className="bg-purple-100 text-purple-800 text-sm px-3 py-1 rounded-full font-medium">
-                  {post.category}
+                  ボード
                 </span>
               </div>
 
               <div className="space-y-2">
-                <h3 className="text-xl font-bold text-gray-900">{post.title}</h3>
-                <p className="text-gray-600">{post.description}</p>
+                <h3 className="text-xl font-bold text-gray-900">{board.title}</h3>
+                <p className="text-gray-600">{board.purpose}</p>
               </div>
 
               <div className="flex items-center justify-between">
@@ -209,14 +244,13 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
                   <div className="flex items-center space-x-1">
                     <Users className="h-4 w-4" />
                     <span>
-                      参加者 {post.current_participants}
-                      {post.max_participants && `/${post.max_participants}`}名
+                      参加者数制限: {board.limit_count || 10}名
                     </span>
                   </div>
                 </div>
 
                 <Button
-                  onClick={() => handleJoinProject(post.id)}
+                  onClick={() => handleJoinBoard(board.id)}
                   className="flex items-center space-x-2"
                 >
                   <MessageCircle className="h-4 w-4" />
@@ -226,7 +260,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
             </div>
           ))
         )}
-      </div>
+      </div> */}
     </div>
   );
 }

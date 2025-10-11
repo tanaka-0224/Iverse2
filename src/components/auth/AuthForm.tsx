@@ -13,6 +13,7 @@ interface AuthFormProps {
 export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,7 +27,7 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
 
     try {
       if (mode === 'register') {
-        await signUp(email, password);
+        await signUp(email, password, name);
       } else {
         await signIn(email, password);
       }
@@ -54,6 +55,17 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === 'register' && (
+            <Input
+              type="text"
+              label="名前"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="お名前を入力"
+              required
+            />
+          )}
+          
           <div className="relative">
             <Input
               type="email"

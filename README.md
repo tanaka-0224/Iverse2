@@ -4,6 +4,17 @@
 
 ## 開発環境
 
+### 1. 環境変数の設定
+プロジェクトルートに`.env`ファイルを作成し、以下の環境変数を設定してください：
+
+```env
+VITE_SUPABASE_URL=https://your-project-url.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+```
+
+**重要**: `.env`ファイルは`.gitignore`に含まれているため、GitHubにアップロードされません。
+
+### 2. 依存関係のインストールと実行
 1. vscodeのターミナルでIverse2にいることを確認
 2. npm installをターミナルにて実行
 3. npm run devをターミナルにて実行
@@ -143,10 +154,8 @@ branch 命名規則：feature/issue-[実施する issue 番号]
 ## データベース構造
 
 ### 主要テーブル
-- **`profiles`** - ユーザープロフィール情報
-- **`posts`** - 投稿データ
-- **`likes`** - いいね機能
-- **`matches`** - マッチング機能
-- **`chat_rooms`** - チャットルーム
-- **`chat_participants`** - チャット参加者
-- **`messages`** - メッセージデータ
+- **`users`** - ユーザー情報（名前、メール、スキル、目的等）
+- **`board`** - ボード情報（タイトル、目的、参加者制限等）
+- **`board_participants`** - ボード参加者管理（参加ステータス）
+- **`message`** - メッセージデータ（ボード内のチャット）
+- **`like`** - いいね機能（ボードへのいいね）

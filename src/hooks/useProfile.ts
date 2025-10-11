@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/database.types';
 
-type Profile = Database['public']['Tables']['profiles']['Row'];
+type User = Database['public']['Tables']['users']['Row'];
 
 export function useProfile(userId: string | undefined) {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,7 +22,7 @@ export function useProfile(userId: string | undefined) {
 
     try {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('users')
         .select('*')
         .eq('id', userId)
         .single();
@@ -36,13 +36,16 @@ export function useProfile(userId: string | undefined) {
     }
   };
 
-  const updateProfile = async (updates: Partial<Profile>) => {
+  const updateProfile = async (updates: Partial<User>) => {
     if (!userId) return;
 
     try {
+      // パスワードフィールドは更新から除外
+      const { password, ...safeUpdates } = updates;
+      
       const { data, error } = await supabase
-        .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .from('users')
+        .update(safeUpdates)
         .eq('id', userId)
         .select()
         .single();

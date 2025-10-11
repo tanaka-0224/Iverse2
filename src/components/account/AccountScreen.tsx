@@ -12,16 +12,20 @@ export default function AccountScreen() {
   const { profile, loading: profileLoading, updateProfile } = useProfile(user?.id);
   const [editing, setEditing] = useState(false);
   const [formData, setFormData] = useState({
-    display_name: '',
-    bio: '',
+    name: '',
+    skill: '',
+    purpose: '',
+    photo: '',
   });
   const [saving, setSaving] = useState(false);
 
   React.useEffect(() => {
     if (profile) {
       setFormData({
-        display_name: profile.display_name || '',
-        bio: profile.bio || '',
+        name: profile.name || '',
+        skill: profile.skill || '',
+        purpose: profile.purpose || '',
+        photo: profile.photo || '',
       });
     }
   }, [profile]);
@@ -76,9 +80,9 @@ export default function AccountScreen() {
       <div className="bg-white rounded-xl shadow-lg p-6 space-y-6">
         <div className="text-center">
           <div className="w-24 h-24 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            {profile?.avatar_url ? (
+            {profile?.photo ? (
               <img 
-                src={profile.avatar_url} 
+                src={profile.photo} 
                 alt="Avatar" 
                 className="w-full h-full rounded-full object-cover"
               />
@@ -87,7 +91,7 @@ export default function AccountScreen() {
             )}
           </div>
           <h2 className="text-xl font-semibold text-gray-900">
-            {profile?.display_name || 'Anonymous'}
+            {profile?.name || 'Anonymous'}
           </h2>
           <p className="text-gray-500">{user?.email}</p>
         </div>
@@ -95,20 +99,36 @@ export default function AccountScreen() {
         {editing ? (
           <div className="space-y-4">
             <Input
-              name="display_name"
-              label="表示名"
-              value={formData.display_name}
+              name="name"
+              label="名前"
+              value={formData.name}
               onChange={handleInputChange}
-              placeholder="あなたの表示名を入力"
+              placeholder="あなたの名前を入力"
+            />
+
+            <Input
+              name="skill"
+              label="スキル"
+              value={formData.skill}
+              onChange={handleInputChange}
+              placeholder="あなたのスキルを入力"
             />
 
             <TextArea
-              name="bio"
-              label="自己紹介"
-              value={formData.bio}
+              name="purpose"
+              label="目的"
+              value={formData.purpose}
               onChange={handleInputChange}
-              placeholder="自己紹介を入力してください"
+              placeholder="あなたの目的や興味を入力してください"
               rows={4}
+            />
+
+            <Input
+              name="photo"
+              label="プロフィール写真URL"
+              value={formData.photo}
+              onChange={handleInputChange}
+              placeholder="写真のURLを入力（任意）"
             />
 
             <div className="flex space-x-3">
@@ -132,9 +152,15 @@ export default function AccountScreen() {
         ) : (
           <div className="space-y-4">
             <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-1">自己紹介</h3>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">スキル</h3>
               <p className="text-gray-900">
-                {profile?.bio || 'まだ自己紹介が設定されていません'}
+                {profile?.skill || 'まだスキルが設定されていません'}
+              </p>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">目的</h3>
+              <p className="text-gray-900">
+                {profile?.purpose || 'まだ目的が設定されていません'}
               </p>
             </div>
 
@@ -151,7 +177,7 @@ export default function AccountScreen() {
       </div>
 
       {/* Settings Section */}
-      <div className="bg-white rounded-xl shadow-lg p-6 space-y-4">
+      {/* <div className="bg-white rounded-xl shadow-lg p-6 space-y-4">
         <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
           <Settings className="h-5 w-5" />
           <span>設定</span>
@@ -174,7 +200,7 @@ export default function AccountScreen() {
             </div>
           </button>
         </div>
-      </div>
+      </div> */}
 
       {/* Logout Section */}
       <div className="bg-white rounded-xl shadow-lg p-6">

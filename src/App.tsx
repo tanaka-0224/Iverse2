@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from './hooks/useAuth';
 import AuthForm from './components/auth/AuthForm';
 import BottomNav from './components/navigation/BottomNav';
@@ -36,10 +36,10 @@ function App() {
     switch (activeScreen) {
       case 'recommendations':
         return <RecommendationsScreen onNavigate={setActiveScreen} />;
-      case 'post':
-        return activeScreen === 'post' && Math.random() > 0.5 ? 
-          <CreatePostScreen onNavigate={setActiveScreen} /> : 
-          <PostBoardScreen onNavigate={setActiveScreen} />;
+      case 'post':          
+          return <PostBoardScreen onNavigate={setActiveScreen} />;
+      case 'createpost':
+          return <CreatePostScreen onNavigate={setActiveScreen} />;
       case 'board':
         return <PostBoardScreen onNavigate={setActiveScreen} />;
       case 'chat':

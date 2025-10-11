@@ -8,25 +8,75 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    console.log('[Auth] 1. useEffect: 認証情報の初期ロードを開始'); // 💡 開始ログ
+    
+    // 1. セッションの初回取得
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log(`[Auth] 2. getSession完了: Sessionが存在するか? ${!!session}`); // 💡 完了ログ
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
+    }).catch(err => {
+        console.error('[Auth] getSessionエラー:', err); // 💡 エラーログ
+        setLoading(false);
     });
 
+    // 2. 認証状態のリアルタイム購読
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log(`[Auth] 3. AuthStateChangeイベント発生: ${event}`); // 💡 発生ログ
+      
       setSession(session);
       setUser(session?.user ?? null);
+      
+      if (event === 'SIGNED_IN' && session?.user) {
+        console.log('[Auth] 4. SIGNED_IN: createOrUpdateUserを実行'); // 💡 処理開始
+        await createOrUpdateUser(session.user);
+        console.log('[Auth] 5. createOrUpdateUser完了'); // 💡 処理完了
+      }
+      
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
+  
+  const createOrUpdateUser = async (user: User) => {
+    console.log('[Auth] 6. createOrUpdateUser開始 (DB同期)'); 
+    try {
+        // 💡 修正案: upsertを使用し、SELECT + INSERT/UPDATE を1回の安全な操作にする
+        const { error: upsertError } = await supabase
+          .from('users')
+          .upsert({
+            // INSERT/UPDATEしたい全フィールド
+            id: user.id, // 主キー。競合チェックに使用されます。
+            email: user.email || '',
+            name: user.user_metadata?.name || user.email?.split('@')[0] || 'ユーザー',
+            password: '', 
+            // skill, purpose, photoなどの初期値もここで設定できます
+          }, { 
+              onConflict: 'id', // id が競合した場合、UPDATEとして処理する
+          });
+        
+        if (upsertError) throw upsertError;
+        console.log('[Auth] 8. usersテーブル同期完了 (upsert)'); // 💡 完了ログ
 
-  const signUp = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    } catch (error) {
+        console.error('[Auth] createOrUpdateUserエラー:', error); 
+    }
+};
+
+  const signUp = async (email: string, password: string, name: string) => {
+    const { data, error } = await supabase.auth.signUp({ 
+      email, 
+      password,
+      options: {
+        data: {
+          name: name
+        },
+      }
+    });
     if (error) throw error;
     return data;
   };
