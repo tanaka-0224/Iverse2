@@ -51,7 +51,12 @@ branch 命名規則：feature/issue-[実施する issue 番号]
 
 5. 作業完了したら github にコードをあげる(ターミナル：git add . → ターミナル：git commit -m "[やった作業を簡潔に]" → ターミナル：git push origin feature/issue-1)
 
-6. Pull requests タブに遷移(url：https://github.com/tanaka-0224/Iverse2/pulls )し、ボタンを押し、テンプレに沿って作成、baseブランチはmainからdevelopに変更
+6. Pull requests タブに遷移(url：https://github.com/tanaka-0224/Iverse2/pulls )し、ボタンを押し、
+base repository:はtanaka-0224/Iverse2に、
+baseはdevelopに変更、
+head repository:はtanaka-0224/Iverse2に、
+compareはfeature/issue-1になってるのを確認し、
+テンプレに沿って作成
 
 8. Review 依頼を出す(田中か藺牟田)
 
