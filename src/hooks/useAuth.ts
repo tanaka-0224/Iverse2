@@ -11,13 +11,6 @@ export function useAuth() {
     console.log('[Auth] 1. useEffect: 認証情報の初期ロードを開始'); // 💡 開始ログ
     
    
-    
-    // // タイムアウトを設定（3秒で強制終了）
-    // const timeoutId = setTimeout(() => {
-    //   console.warn('[Auth] タイムアウト: 強制的にローディングを終了');
-    //   setLoading(false);
-    // }, 3000);
-    
     // 1. セッションの初回取得
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log(`[Auth] 2. getSession完了: Sessionが存在するか? ${!!session}`); // 💡 完了ログ
