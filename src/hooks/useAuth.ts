@@ -10,24 +10,18 @@ export function useAuth() {
   useEffect(() => {
     console.log('[Auth] 1. useEffect: 認証情報の初期ロードを開始'); // 💡 開始ログ
     
-   
     // 1. セッションの初回取得
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log(`[Auth] 2. getSession完了: Sessionが存在するか? ${!!session}`); // 💡 完了ログ
-      // clearTimeout(timeoutId);
+     
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
       
-      // セッションがある場合、createOrUpdateUserを非同期で実行
-      // if (session?.user) {
-      //   createOrUpdateUser(session.user).catch(err => {
-      //     console.error('[Auth] createOrUpdateUserエラー（非ブロッキング）:', err);
-      //   });
-      // }
+     
     }).catch(err => {
         console.error('[Auth] getSessionエラー:', err); // 💡 エラーログ
-        // clearTimeout(timeoutId);
+       
         setLoading(false);
     });
 
@@ -40,10 +34,7 @@ export function useAuth() {
       setSession(session);
       setUser(session?.user ?? null);
       
-      // // ローディングを先にfalseにして、画面を表示できるようにする
-      // setLoading(false);
-      
-      // // createOrUpdateUserは非同期で実行（画面表示をブロックしない）
+     
       if (event === 'SIGNED_IN' && session?.user) {
         console.log('[Auth] 4. SIGNED_IN: createOrUpdateUserを実行'); // 💡 処理開始
         createOrUpdateUser(session.user).catch(err => {
