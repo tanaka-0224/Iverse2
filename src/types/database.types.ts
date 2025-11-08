@@ -8,6 +8,8 @@ export interface Database {
           display_name: string | null;
           bio: string | null;
           avatar_url: string | null;
+          skill: string | null;
+          purpose: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -17,6 +19,8 @@ export interface Database {
           display_name?: string | null;
           bio?: string | null;
           avatar_url?: string | null;
+          skill?: string | null;
+          purpose?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -26,6 +30,8 @@ export interface Database {
           display_name?: string | null;
           bio?: string | null;
           avatar_url?: string | null;
+          skill?: string | null;
+          purpose?: string | null;
           created_at?: string;
           updated_at?: string;
         };
