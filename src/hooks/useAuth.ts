@@ -13,15 +13,11 @@ export function useAuth() {
     // 1. セッションの初回取得
     supabase.auth.getSession().then(({ data: { session } }) => {
       console.log(`[Auth] 2. getSession完了: Sessionが存在するか? ${!!session}`); // 💡 完了ログ
-     
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
-      
-     
     }).catch(err => {
-        console.error('[Auth] getSessionエラー:', err); // 💡 エラーログ
-       
+        console.error('[Auth] getSessionエラー:', err); // 💡 エラーログ  
         setLoading(false);
     });
 
@@ -34,7 +30,6 @@ export function useAuth() {
       setSession(session);
       setUser(session?.user ?? null);
       
-     
       if (event === 'SIGNED_IN' && session?.user) {
         console.log('[Auth] 4. SIGNED_IN: createOrUpdateUserを実行'); // 💡 処理開始
         createOrUpdateUser(session.user).catch(err => {
