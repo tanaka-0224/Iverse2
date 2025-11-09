@@ -30,9 +30,10 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   const [loading, setLoading] = useState(true);
   const [likeLoading, setLikeLoading] = useState<string | null>(null);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
+  const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
 
   useEffect(() => {
-    if (!isSupabaseConfigured) {
+    if (!isSupabaseConfigured || isDemoUser) {
       setLoading(false);
       setPosts([]);
       setLikedPosts(new Set());
@@ -41,10 +42,10 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
 
     fetchRecommendations();
     fetchUserLikes();
-  }, [user]);
+  }, [user, isDemoUser]);
 
   const fetchRecommendations = async () => {
-    if (!isSupabaseConfigured) {
+    if (!isSupabaseConfigured || isDemoUser) {
       return;
     }
 
@@ -78,7 +79,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   };
 
   const fetchUserLikes = async () => {
-    if (!user || !isSupabaseConfigured) return;
+    if (!user || !isSupabaseConfigured || isDemoUser) return;
 
     try {
       const { data, error } = await supabase
@@ -94,7 +95,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   };
 
   const handleLike = async (postId: string) => {
-    if (!user || !isSupabaseConfigured) return;
+    if (!user || !isSupabaseConfigured || isDemoUser) return;
     
     setLikeLoading(postId);
     const hasLiked = likedPosts.has(postId);
@@ -132,7 +133,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   };
 
   const checkForMatch = async (postId: string) => {
-    if (!user || !isSupabaseConfigured) return;
+    if (!user || !isSupabaseConfigured || isDemoUser) return;
 
     try {
       // Get the post owner
