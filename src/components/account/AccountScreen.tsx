@@ -18,7 +18,7 @@ const fileToDataUrl = (file: File) =>
 
 export default function AccountScreen() {
   const { user, signOut } = useAuth();
-  const { profile, loading: profileLoading, updateProfile } = useProfile(user?.id);
+  const { profile, loading: profileLoading, updateProfile } = useProfile(user?.id, user?.email);
   const [editing, setEditing] = useState(false);
   const [formData, setFormData] = useState({
     display_name: '',

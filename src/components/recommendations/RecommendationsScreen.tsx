@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import RecommendationCard from './RecommendationCard';
 import LoadingSpinner from '../ui/LoadingSpinner';
@@ -32,11 +32,22 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setLoading(false);
+      setPosts([]);
+      setLikedPosts(new Set());
+      return;
+    }
+
     fetchRecommendations();
     fetchUserLikes();
   }, [user]);
 
   const fetchRecommendations = async () => {
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from('posts')
@@ -67,7 +78,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   };
 
   const fetchUserLikes = async () => {
-    if (!user) return;
+    if (!user || !isSupabaseConfigured) return;
 
     try {
       const { data, error } = await supabase
@@ -83,7 +94,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   };
 
   const handleLike = async (postId: string) => {
-    if (!user) return;
+    if (!user || !isSupabaseConfigured) return;
     
     setLikeLoading(postId);
     const hasLiked = likedPosts.has(postId);
@@ -121,7 +132,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   };
 
   const checkForMatch = async (postId: string) => {
-    if (!user) return;
+    if (!user || !isSupabaseConfigured) return;
 
     try {
       // Get the post owner

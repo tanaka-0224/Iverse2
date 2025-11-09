@@ -8,6 +8,7 @@ import PostBoardScreen from './components/posts/PostBoardScreen';
 import ChatScreen from './components/chat/ChatScreen';
 import AccountScreen from './components/account/AccountScreen';
 import LoadingSpinner from './components/ui/LoadingSpinner';
+import DemoBanner from './components/ui/DemoBanner';
 
 function App() {
   const { user, loading } = useAuth();
@@ -51,10 +52,13 @@ function App() {
     }
   };
 
+  const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
       <div className="max-w-md mx-auto bg-white min-h-screen">
         <div className="px-4 py-6 pb-20">
+          {isDemoUser && <DemoBanner />}
           {renderScreen()}
         </div>
         <BottomNav activeTab={activeScreen} onTabChange={setActiveScreen} />

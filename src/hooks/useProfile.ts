@@ -35,11 +35,11 @@ const writeDemoProfile = (userId: string, profile: Profile | null) => {
   }
 };
 
-const createDemoProfile = (userId: string): Profile => {
+const createDemoProfile = (userId: string, email?: string | null): Profile => {
   const now = new Date().toISOString();
   return {
     id: userId,
-    email: `${userId}@demo.local`,
+    email: email || `${userId}@demo.local`,
     display_name: 'Demo User',
     bio: null,
     avatar_url: null,
@@ -50,7 +50,31 @@ const createDemoProfile = (userId: string): Profile => {
   };
 };
 
-export function useProfile(userId: string | undefined) {
+const createServerProfile = async (userId: string, email: string) => {
+  const now = new Date().toISOString();
+  const defaultProfile = {
+    id: userId,
+    email,
+    display_name: null,
+    bio: null,
+    avatar_url: null,
+    skill: null,
+    purpose: null,
+    created_at: now,
+    updated_at: now,
+  };
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .upsert(defaultProfile, { onConflict: 'id' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export function useProfile(userId: string | undefined, userEmail?: string | null) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -61,13 +85,13 @@ export function useProfile(userId: string | undefined) {
     }
 
     fetchProfile();
-  }, [userId]);
+  }, [userId, userEmail]);
 
   const fetchProfile = async () => {
     if (!userId) return;
 
     if (isDemoUserId(userId)) {
-      const stored = readDemoProfile(userId) ?? createDemoProfile(userId);
+      const stored = readDemoProfile(userId) ?? createDemoProfile(userId, userEmail);
       writeDemoProfile(userId, stored);
       setProfile(stored);
       setLoading(false);
@@ -79,10 +103,21 @@ export function useProfile(userId: string | undefined) {
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
-      setProfile(data);
+
+      if (!data) {
+        if (!userEmail) {
+          console.warn('No profile row exists and no email provided to create one.');
+          setProfile(null);
+        } else {
+          const created = await createServerProfile(userId, userEmail);
+          setProfile(created);
+        }
+      } else {
+        setProfile(data);
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {
@@ -94,7 +129,7 @@ export function useProfile(userId: string | undefined) {
     if (!userId) return;
 
     if (isDemoUserId(userId)) {
-      const current = profile ?? readDemoProfile(userId) ?? createDemoProfile(userId);
+      const current = profile ?? readDemoProfile(userId) ?? createDemoProfile(userId, userEmail);
       const updatedProfile: Profile = {
         ...current,
         ...updates,
@@ -106,10 +141,25 @@ export function useProfile(userId: string | undefined) {
     }
 
     try {
+      let currentProfile = profile;
+      if (!currentProfile) {
+        if (!userEmail) {
+          console.warn('Cannot create profile without an email address.');
+          return;
+        }
+        currentProfile = await createServerProfile(userId, userEmail);
+      }
+
+      const updatedProfile: Profile = {
+        ...currentProfile,
+        ...updates,
+        email: userEmail || currentProfile.email,
+        updated_at: new Date().toISOString(),
+      };
+
       const { data, error } = await supabase
         .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', userId)
+        .upsert(updatedProfile, { onConflict: 'id' })
         .select()
         .single();
 
