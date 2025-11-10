@@ -4,21 +4,25 @@ import { useAuth } from '../../hooks/useAuth';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
-import { MessageCircle, Send, Users, User } from 'lucide-react';
+import { MessageCircle, Send, User } from 'lucide-react';
 
-interface ChatRoom {
+interface Board {
   id: string;
-  name: string;
-  type: 'match' | 'project';
+  title: string;
+  purpose: string | null;
+  users: {
+    name: string;
+    photo: string | null;
+  };
 }
 
 interface Message {
   id: string;
   content: string;
-  created_at: string;
-  profiles: {
-    display_name: string | null;
-    avatar_url: string | null;
+  created_at: string | null;
+  users: {
+    name: string;
+    photo: string | null;
   };
   user_id: string;
 }
@@ -27,76 +31,99 @@ interface ChatScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-export default function ChatScreen({ onNavigate }: ChatScreenProps) {
+export default function ChatScreen({}: ChatScreenProps) {
   const { user } = useAuth();
-  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
-  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sendingMessage, setSendingMessage] = useState(false);
 
   useEffect(() => {
-    fetchChatRooms();
+    fetchBoards();
   }, [user]);
 
-  useEffect(() => {
-    if (selectedRoom) {
-      fetchMessages(selectedRoom);
-      subscribeToMessages(selectedRoom);
-    }
-  }, [selectedRoom]);
+  // useEffect(() => {
+  //   if (selectedBoard) {
+  //     fetchMessages(selectedBoard);
+  //     subscribeToMessages(selectedBoard);
+  //   }
+  // }, [selectedBoard]);
+  // 修正後の useEffect
+useEffect(() => {
+  let unsubscribe: (() => void) | undefined;
 
-  const fetchChatRooms = async () => {
+  if (selectedBoard) {
+    fetchMessages(selectedBoard);
+    // 💡 購読関数から返されるクリーンアップ関数を変数に保持
+    unsubscribe = subscribeToMessages(selectedBoard);
+  }
+
+  // 💡 useEffect のクリーンアップ関数として購読解除を実行
+  return () => {
+    if (unsubscribe) {
+      unsubscribe();
+    }
+  };
+}, [selectedBoard]);
+
+  const fetchBoards = async () => {
     if (!user) return;
 
     try {
       const { data, error } = await supabase
-        .from('chat_participants')
+        .from('board_participants')
         .select(`
-          room_id,
-          chat_rooms!inner (
+          board_id,
+          board!inner (
             id,
-            name,
-            type
+            title,
+            purpose,
+            users (
+              name,
+              photo
+            )
           )
         `)
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .eq('status', 'accepted');
 
       if (error) throw error;
 
-      const rooms = data?.map(item => ({
-        id: item.chat_rooms.id,
-        name: item.chat_rooms.name,
-        type: item.chat_rooms.type,
+      const boards = data?.map(item => ({
+        id: item.board.id,
+        title: item.board.title,
+        purpose: item.board.purpose,
+        users: item.board.users,
       })) || [];
 
-      setChatRooms(rooms);
-      if (rooms.length > 0 && !selectedRoom) {
-        setSelectedRoom(rooms[0].id);
+      setBoards(boards);
+      if (boards.length > 0 && !selectedBoard) {
+        setSelectedBoard(boards[0].id);
       }
     } catch (error) {
-      console.error('Error fetching chat rooms:', error);
+      console.error('Error fetching boards:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchMessages = async (roomId: string) => {
+  const fetchMessages = async (boardId: string) => {
     try {
       const { data, error } = await supabase
-        .from('messages')
+        .from('message')
         .select(`
           id,
           content,
           created_at,
           user_id,
-          profiles!inner (
-            display_name,
-            avatar_url
+          users!inner (
+            name,
+            photo
           )
         `)
-        .eq('room_id', roomId)
+        .eq('board_id', boardId)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -106,19 +133,19 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
     }
   };
 
-  const subscribeToMessages = (roomId: string) => {
+  const subscribeToMessages = (boardId: string) => {
     const subscription = supabase
-      .channel(`messages:${roomId}`)
+      .channel(`messages:${boardId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
-          table: 'messages',
-          filter: `room_id=eq.${roomId}`,
+          table: 'message',
+          filter: `board_id=eq.${boardId}`,
         },
-        (payload) => {
-          fetchMessages(roomId);
+        () => {
+          fetchMessages(boardId);
         }
       )
       .subscribe();
@@ -128,14 +155,14 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !selectedRoom || !newMessage.trim()) return;
+    if (!user || !selectedBoard || !newMessage.trim()) return;
 
     setSendingMessage(true);
     try {
       const { error } = await supabase
-        .from('messages')
+        .from('message')
         .insert({
-          room_id: selectedRoom,
+          board_id: selectedBoard,
           user_id: user.id,
           content: newMessage.trim(),
         });
@@ -165,7 +192,7 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
     );
   }
 
-  if (chatRooms.length === 0) {
+  if (boards.length === 0) {
     return (
       <div className="text-center py-12 space-y-4">
         <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
@@ -173,7 +200,7 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
         </div>
         <div className="space-y-2">
           <h3 className="text-lg font-medium text-gray-900">トークがありません</h3>
-          <p className="text-gray-500">マッチングやプロジェクト参加でトークを開始しましょう</p>
+          <p className="text-gray-500">ボードに参加してトークを開始しましょう</p>
         </div>
       </div>
     );
@@ -190,22 +217,22 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
       </div>
 
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        {/* Chat Room List */}
+        {/* Board List */}
         <div className="border-b border-gray-200">
           <div className="flex space-x-2 p-4 overflow-x-auto">
-            {chatRooms.map((room) => (
+            {boards.map((board) => (
               <button
-                key={room.id}
-                onClick={() => setSelectedRoom(room.id)}
+                key={board.id}
+                onClick={() => setSelectedBoard(board.id)}
                 className={`
                   flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
-                  ${selectedRoom === room.id
+                  ${selectedBoard === board.id
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }
                 `}
               >
-                {room.name}
+                {board.title}
               </button>
             ))}
           </div>
@@ -220,9 +247,9 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
             >
               <div className={`flex items-start space-x-2 max-w-xs lg:max-w-md ${message.user_id === user?.id ? 'flex-row-reverse space-x-reverse' : ''}`}>
                 <div className="w-8 h-8 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
-                  {message.profiles.avatar_url ? (
+                  {message.users.photo ? (
                     <img 
-                      src={message.profiles.avatar_url} 
+                      src={message.users.photo} 
                       alt="Avatar" 
                       className="w-full h-full rounded-full object-cover"
                     />
@@ -233,7 +260,7 @@ export default function ChatScreen({ onNavigate }: ChatScreenProps) {
                 <div className={`rounded-lg px-3 py-2 ${message.user_id === user?.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'}`}>
                   <p className="text-sm">{message.content}</p>
                   <p className={`text-xs mt-1 ${message.user_id === user?.id ? 'text-blue-200' : 'text-gray-500'}`}>
-                    {formatTime(message.created_at)}
+                    {message.created_at ? formatTime(message.created_at) : '不明'}
                   </p>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from './hooks/useAuth';
 import AuthForm from './components/auth/AuthForm';
 import BottomNav from './components/navigation/BottomNav';
@@ -37,10 +37,10 @@ function App() {
     switch (activeScreen) {
       case 'recommendations':
         return <RecommendationsScreen onNavigate={setActiveScreen} />;
-      case 'post':
-        return activeScreen === 'post' && Math.random() > 0.5 ? 
-          <CreatePostScreen onNavigate={setActiveScreen} /> : 
-          <PostBoardScreen onNavigate={setActiveScreen} />;
+      case 'post':          
+          return <PostBoardScreen onNavigate={setActiveScreen} />;
+      case 'createpost':
+          return <CreatePostScreen onNavigate={setActiveScreen} />;
       case 'board':
         return <PostBoardScreen onNavigate={setActiveScreen} />;
       case 'chat':
@@ -53,12 +53,18 @@ function App() {
   };
 
   const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
+  const displayName =
+    user?.user_metadata?.name ||
+    user?.email?.split('@')[0] ||
+    null;
+  const shouldShowDemoBanner =
+    isDemoUser && (!displayName || displayName === 'Demo User');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
       <div className="max-w-md mx-auto bg-white min-h-screen">
         <div className="px-4 py-6 pb-20">
-          {isDemoUser && <DemoBanner />}
+          {shouldShowDemoBanner && <DemoBanner />}
           {renderScreen()}
         </div>
         <BottomNav activeTab={activeScreen} onTabChange={setActiveScreen} />

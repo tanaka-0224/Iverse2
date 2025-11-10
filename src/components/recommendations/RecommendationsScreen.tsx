@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import RecommendationCard from './RecommendationCard';
@@ -6,17 +6,16 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 import { RefreshCw, Sparkles } from 'lucide-react';
 import Button from '../ui/Button';
 
-interface Post {
+interface Board {
   id: string;
   title: string;
-  category: string;
-  description: string;
-  max_participants: number | null;
-  current_participants: number;
-  created_at: string;
-  profiles: {
-    display_name: string | null;
-    avatar_url: string | null;
+  purpose: string | null;
+  limit_count: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  users: {
+    name: string;
+    photo: string | null;
   };
 }
 
@@ -24,157 +23,175 @@ interface RecommendationsScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-export default function RecommendationsScreen({ onNavigate }: RecommendationsScreenProps) {
+export default function RecommendationsScreen({
+  onNavigate,
+}: RecommendationsScreenProps) {
   const { user } = useAuth();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [boards, setBoards] = useState<Board[]>([]);
   const [loading, setLoading] = useState(true);
   const [likeLoading, setLikeLoading] = useState<string | null>(null);
-  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
+  const [likedBoardIds, setLikedBoardIds] = useState<Set<string>>(new Set());
   const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
 
-  useEffect(() => {
-    if (!isSupabaseConfigured || isDemoUser) {
+  const fetchRecommendations = useCallback(async () => {
+    if (!user?.id || !isSupabaseConfigured || isDemoUser) {
+      return [] as Board[];
+    }
+
+    const { data, error } = await supabase
+      .from('board')
+      .select(
+        `
+        id,
+        title,
+        purpose,
+        limit_count,
+        created_at,
+        updated_at,
+        users (
+          name,
+          photo
+        )
+      `,
+      )
+      .neq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return data ?? [];
+  }, [user?.id, isDemoUser, isSupabaseConfigured]);
+
+  const fetchUserLikes = useCallback(async () => {
+    if (!user?.id || !isSupabaseConfigured || isDemoUser) {
+      return new Set<string>();
+    }
+
+    const { data, error } = await supabase
+      .from('like')
+      .select('board_id')
+      .eq('user_id', user.id);
+
+    if (error) throw error;
+    return new Set(data?.map((like) => like.board_id) ?? []);
+  }, [user?.id, isDemoUser, isSupabaseConfigured]);
+
+  const initialize = useCallback(async () => {
+    if (!user?.id || !isSupabaseConfigured || isDemoUser) {
+      setBoards([]);
+      setLikedBoardIds(new Set());
       setLoading(false);
-      setPosts([]);
-      setLikedPosts(new Set());
       return;
     }
 
-    fetchRecommendations();
-    fetchUserLikes();
-  }, [user, isDemoUser]);
-
-  const fetchRecommendations = async () => {
-    if (!isSupabaseConfigured || isDemoUser) {
-      return;
-    }
-
+    setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
-          id,
-          title,
-          category,
-          description,
-          max_participants,
-          current_participants,
-          created_at,
-          profiles (
-            display_name,
-            avatar_url
-          )
-        `)
-        .eq('status', 'published')
-        .neq('user_id', user?.id)
-        .order('created_at', { ascending: false });
+      const [nextBoards, likedSet] = await Promise.all([
+        fetchRecommendations(),
+        fetchUserLikes(),
+      ]);
 
-      if (error) throw error;
-      setPosts(data || []);
+      setBoards(nextBoards);
+      setLikedBoardIds(likedSet);
     } catch (error) {
       console.error('Error fetching recommendations:', error);
+      setBoards([]);
+      setLikedBoardIds(new Set());
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    user?.id,
+    isDemoUser,
+    isSupabaseConfigured,
+    fetchRecommendations,
+    fetchUserLikes,
+  ]);
 
-  const fetchUserLikes = async () => {
-    if (!user || !isSupabaseConfigured || isDemoUser) return;
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
 
-    try {
-      const { data, error } = await supabase
-        .from('likes')
-        .select('post_id')
-        .eq('user_id', user.id);
+  const checkForMatch = useCallback(
+    async (boardId: string) => {
+      if (!user?.id || !isSupabaseConfigured || isDemoUser) return;
 
-      if (error) throw error;
-      setLikedPosts(new Set(data?.map(like => like.post_id) || []));
-    } catch (error) {
-      console.error('Error fetching user likes:', error);
-    }
-  };
+      try {
+        const { data: boardOwner, error: boardError } = await supabase
+          .from('board')
+          .select('user_id')
+          .eq('id', boardId)
+          .single();
 
-  const handleLike = async (postId: string) => {
-    if (!user || !isSupabaseConfigured || isDemoUser) return;
-    
-    setLikeLoading(postId);
-    const hasLiked = likedPosts.has(postId);
+        if (boardError) throw boardError;
+        if (!boardOwner) return;
+
+        const { data: myBoards, error: myBoardsError } = await supabase
+          .from('board')
+          .select('id')
+          .eq('user_id', user.id);
+
+        if (myBoardsError) throw myBoardsError;
+
+        const myBoardIds = myBoards?.map((board) => board.id) ?? [];
+        if (myBoardIds.length === 0) return;
+
+        const { data: mutualLikes, error: likesError } = await supabase
+          .from('like')
+          .select('*')
+          .eq('user_id', boardOwner.user_id)
+          .in('board_id', myBoardIds);
+
+        if (likesError) throw likesError;
+
+        if (mutualLikes && mutualLikes.length > 0) {
+          alert('マッチング成立！トーク画面に移動します。');
+          onNavigate('chat');
+        }
+      } catch (error) {
+        console.error('Error checking for match:', error);
+      }
+    },
+    [user?.id, isDemoUser, isSupabaseConfigured, onNavigate],
+  );
+
+  const handleLike = async (boardId: string) => {
+    if (!user?.id || !isSupabaseConfigured || isDemoUser) return;
+
+    setLikeLoading(boardId);
+    const hasLiked = likedBoardIds.has(boardId);
 
     try {
       if (hasLiked) {
         const { error } = await supabase
-          .from('likes')
+          .from('like')
           .delete()
           .eq('user_id', user.id)
-          .eq('post_id', postId);
+          .eq('board_id', boardId);
 
         if (error) throw error;
-        setLikedPosts(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(postId);
-          return newSet;
+        setLikedBoardIds((prev) => {
+          const next = new Set(prev);
+          next.delete(boardId);
+          return next;
         });
       } else {
         const { error } = await supabase
-          .from('likes')
-          .insert({ user_id: user.id, post_id: postId });
+          .from('like')
+          .insert({ user_id: user.id, board_id: boardId });
 
         if (error) throw error;
-        setLikedPosts(prev => new Set([...prev, postId]));
+        setLikedBoardIds((prev) => {
+          const next = new Set(prev);
+          next.add(boardId);
+          return next;
+        });
 
-        // Check for mutual like and create match
-        await checkForMatch(postId);
+        await checkForMatch(boardId);
       }
     } catch (error) {
       console.error('Error handling like:', error);
     } finally {
       setLikeLoading(null);
-    }
-  };
-
-  const checkForMatch = async (postId: string) => {
-    if (!user || !isSupabaseConfigured || isDemoUser) return;
-
-    try {
-      // Get the post owner
-      const { data: post, error: postError } = await supabase
-        .from('posts')
-        .select('user_id')
-        .eq('id', postId)
-        .single();
-
-      if (postError) throw postError;
-
-      // Check if post owner also liked current user's posts
-      const { data: mutualLikes, error: likesError } = await supabase
-        .from('likes')
-        .select('*')
-        .eq('user_id', post.user_id)
-        .in('post_id', (await supabase
-          .from('posts')
-          .select('id')
-          .eq('user_id', user.id)).data?.map(p => p.id) || []);
-
-      if (likesError) throw likesError;
-
-      if (mutualLikes && mutualLikes.length > 0) {
-        // Create match
-        const { error: matchError } = await supabase
-          .from('matches')
-          .insert({
-            user1_id: user.id,
-            user2_id: post.user_id,
-            post_id: postId,
-          });
-
-        if (matchError) throw matchError;
-
-        // Show match notification and navigate to chat
-        alert('マッチング成立！トーク画面に移動します。');
-        onNavigate('chat');
-      }
-    } catch (error) {
-      console.error('Error checking for match:', error);
     }
   };
 
@@ -198,7 +215,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
 
       <div className="flex justify-center">
         <Button
-          onClick={fetchRecommendations}
+          onClick={initialize}
           variant="outline"
           size="sm"
           className="flex items-center space-x-2"
@@ -209,24 +226,28 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
       </div>
 
       <div className="space-y-4">
-        {posts.length === 0 ? (
+        {boards.length === 0 ? (
           <div className="text-center py-12 space-y-4">
             <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
               <Sparkles className="h-12 w-12 text-gray-400" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-lg font-medium text-gray-900">新しい募集はありません</h3>
-              <p className="text-gray-500">後でもう一度チェックしてみてください</p>
+              <h3 className="text-lg font-medium text-gray-900">
+                新しい募集はありません
+              </h3>
+              <p className="text-gray-500">
+                後でもう一度チェックしてみてください
+              </p>
             </div>
           </div>
         ) : (
-          posts.map((post) => (
+          boards.map((board) => (
             <RecommendationCard
-              key={post.id}
-              post={post}
+              key={board.id}
+              board={board}
               onLike={handleLike}
-              hasLiked={likedPosts.has(post.id)}
-              loading={likeLoading === post.id}
+              hasLiked={likedBoardIds.has(board.id)}
+              loading={likeLoading === board.id}
             />
           ))
         )}

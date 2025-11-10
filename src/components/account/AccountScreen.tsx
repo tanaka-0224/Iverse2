@@ -16,15 +16,28 @@ const fileToDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
+type ProfileFields = {
+  display_name: string;
+  skill: string;
+  purpose: string;
+};
+
+const emptyProfileFields: ProfileFields = {
+  display_name: '',
+  skill: '',
+  purpose: '',
+};
+
 export default function AccountScreen() {
   const { user, signOut } = useAuth();
-  const { profile, loading: profileLoading, updateProfile } = useProfile(user?.id, user?.email);
+  const { profile, loading: profileLoading, updateProfile } = useProfile(
+    user?.id,
+    user?.email,
+    user?.user_metadata?.name || user?.email?.split('@')[0] || null,
+  );
   const [editing, setEditing] = useState(false);
-  const [formData, setFormData] = useState({
-    display_name: '',
-    skill: '',
-    purpose: '',
-  });
+  const [formData, setFormData] = useState<ProfileFields>(emptyProfileFields);
+  const [savedData, setSavedData] = useState<ProfileFields>(emptyProfileFields);
   const [avatarUrl, setAvatarUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -33,11 +46,13 @@ export default function AccountScreen() {
   const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
 
   React.useEffect(() => {
-    setFormData({
+    const nextData: ProfileFields = {
       display_name: profile?.display_name || '',
       skill: profile?.skill || '',
       purpose: profile?.purpose || '',
-    });
+    };
+    setFormData(nextData);
+    setSavedData(nextData);
     setAvatarUrl(profile?.avatar_url || '');
     setSelectedFile(null);
     setPreviewUrl(prev => {
@@ -108,17 +123,29 @@ export default function AccountScreen() {
           if (uploadedUrl) {
             nextAvatarUrl = uploadedUrl;
             setAvatarUrl(uploadedUrl);
+          } else {
+            const dataUrl = await fileToDataUrl(selectedFile);
+            nextAvatarUrl = dataUrl;
+            setAvatarUrl(dataUrl);
           }
         }
       }
 
-      await updateProfile({
+      const updatedProfile = await updateProfile({
         display_name: formData.display_name || null,
         skill: formData.skill || null,
         purpose: formData.purpose || null,
         avatar_url: nextAvatarUrl,
       });
 
+      const latestSaved: ProfileFields = {
+        display_name: updatedProfile?.display_name ?? formData.display_name,
+        skill: updatedProfile?.skill ?? formData.skill,
+        purpose: updatedProfile?.purpose ?? formData.purpose,
+      };
+
+      setSavedData(latestSaved);
+      setFormData(latestSaved);
       setAvatarUrl(nextAvatarUrl ?? '');
       setEditing(false);
       setSelectedFile(null);
@@ -140,11 +167,7 @@ export default function AccountScreen() {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-    setFormData({
-      display_name: profile?.display_name || '',
-      skill: profile?.skill || '',
-      purpose: profile?.purpose || '',
-    });
+    setFormData(savedData);
     setAvatarUrl(profile?.avatar_url || '');
   };
 
@@ -190,8 +213,10 @@ export default function AccountScreen() {
             )}
           </div>
           <h2 className="text-xl font-semibold text-gray-900">
-            {formData.display_name || 'Anonymous'}
+            {(editing ? formData.display_name : savedData.display_name) || 'Anonymous'}
           </h2>
+          {/* メールアドレスは非表示にする */}
+          <p className="text-gray-500 sr-only">{user?.email}</p>
         </div>
 
         {editing ? (
@@ -278,20 +303,20 @@ export default function AccountScreen() {
             <div className="bg-gray-50 rounded-2xl p-4 space-y-1">
               <h3 className="text-xs font-bold tracking-wide text-gray-500 uppercase">スキル</h3>
               <p className="text-gray-900 text-base">
-                {profile?.skill || 'まだスキルが設定されていません'}
+                {savedData.skill || 'まだスキルが設定されていません'}
               </p>
             </div>
             <div className="bg-gray-50 rounded-2xl p-4 space-y-1">
               <h3 className="text-xs font-bold tracking-wide text-gray-500 uppercase">目的</h3>
               <p className="text-gray-900 text-base whitespace-pre-line">
-                {profile?.purpose || 'まだ目的が設定されていません'}
+                {savedData.purpose || 'まだ目的が設定されていません'}
               </p>
             </div>
 
             <Button
               onClick={() => setEditing(true)}
               variant="outline"
-              className="w-full flex items-center justify-center space-x-2"
+              className="w-full flex items-center justify中心 space-x-2"
             >
               <Settings className="h-4 w-4" />
               <span>プロフィールを編集</span>

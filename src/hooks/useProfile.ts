@@ -1,11 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/database.types';
 
-type Profile = Database['public']['Tables']['profiles']['Row'];
+type UserRow = Database['public']['Tables']['users']['Row'];
+
+type Profile = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  skill: string | null;
+  purpose: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
 
 const hasWindow = () => typeof window !== 'undefined';
-const canUseStorage = () => hasWindow() && typeof window.localStorage !== 'undefined';
+const canUseStorage = () =>
+  hasWindow() && typeof window.localStorage !== 'undefined';
 const isDemoUserId = (userId?: string) => Boolean(userId?.startsWith('demo-'));
 const getDemoProfileKey = (userId: string) => `demo-profile:${userId}`;
 
@@ -26,7 +39,10 @@ const writeDemoProfile = (userId: string, profile: Profile | null) => {
 
   try {
     if (profile) {
-      window.localStorage.setItem(getDemoProfileKey(userId), JSON.stringify(profile));
+      window.localStorage.setItem(
+        getDemoProfileKey(userId),
+        JSON.stringify(profile),
+      );
     } else {
       window.localStorage.removeItem(getDemoProfileKey(userId));
     }
@@ -35,14 +51,18 @@ const writeDemoProfile = (userId: string, profile: Profile | null) => {
   }
 };
 
-const createDemoProfile = (userId: string, email?: string | null): Profile => {
+const createDemoProfile = (
+  userId: string,
+  email?: string | null,
+  displayName?: string | null,
+): Profile => {
   const now = new Date().toISOString();
   return {
     id: userId,
     email: email || `${userId}@demo.local`,
-    display_name: 'Demo User',
-    bio: null,
+    display_name: displayName || 'Demo User',
     avatar_url: null,
+    bio: null,
     skill: null,
     purpose: null,
     created_at: now,
@@ -50,31 +70,90 @@ const createDemoProfile = (userId: string, email?: string | null): Profile => {
   };
 };
 
-const createServerProfile = async (userId: string, email: string) => {
-  const now = new Date().toISOString();
-  const defaultProfile = {
-    id: userId,
-    email,
-    display_name: null,
-    bio: null,
-    avatar_url: null,
-    skill: null,
-    purpose: null,
-    created_at: now,
-    updated_at: now,
-  };
+const mapUserToProfile = (user: UserRow): Profile => ({
+  id: user.id,
+  email: user.email,
+  display_name: user.name,
+  avatar_url: user.photo,
+  bio: null,
+  skill: user.skill,
+  purpose: user.purpose,
+  created_at: user.created_at,
+  updated_at: user.updated_at,
+});
+
+const createServerProfile = async (
+  userId: string,
+  email: string,
+  displayName?: string | null,
+) => {
+  const timestamp = new Date().toISOString();
+  const defaultName = displayName || email.split('@')[0] || 'ユーザー';
 
   const { data, error } = await supabase
-    .from('profiles')
-    .upsert(defaultProfile, { onConflict: 'id' })
+    .from('users')
+    .upsert(
+      {
+        id: userId,
+        email,
+        name: defaultName,
+        password: '',
+        photo: null,
+        purpose: null,
+        skill: null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      },
+      { onConflict: 'id' },
+    )
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return mapUserToProfile(data);
 };
 
-export function useProfile(userId: string | undefined, userEmail?: string | null) {
+const buildUserUpdatePayload = (
+  updates: Partial<Profile>,
+  currentProfile: Profile | null,
+  fallbackEmail?: string | null,
+): Partial<UserRow> => {
+  const payload: Partial<UserRow> = {};
+
+  if ('display_name' in updates) {
+    const resolvedName =
+      updates.display_name ??
+      currentProfile?.display_name ??
+      (fallbackEmail ? fallbackEmail.split('@')[0] : null) ??
+      'ユーザー';
+
+    payload.name = resolvedName || 'ユーザー';
+  }
+
+  if ('avatar_url' in updates) {
+    payload.photo = updates.avatar_url ?? null;
+  }
+
+  if ('skill' in updates) {
+    payload.skill = updates.skill ?? null;
+  }
+
+  if ('purpose' in updates) {
+    payload.purpose = updates.purpose ?? null;
+  }
+
+  if (Object.keys(payload).length > 0) {
+    payload.updated_at = new Date().toISOString();
+  }
+
+  return payload;
+};
+
+export function useProfile(
+  userId: string | undefined,
+  userEmail?: string | null,
+  userDisplayName?: string | null,
+) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -85,22 +164,33 @@ export function useProfile(userId: string | undefined, userEmail?: string | null
     }
 
     fetchProfile();
-  }, [userId, userEmail]);
+  }, [userId, userEmail, userDisplayName]);
 
   const fetchProfile = async () => {
     if (!userId) return;
 
     if (isDemoUserId(userId)) {
-      const stored = readDemoProfile(userId) ?? createDemoProfile(userId, userEmail);
-      writeDemoProfile(userId, stored);
-      setProfile(stored);
+      const stored =
+        readDemoProfile(userId) ??
+        createDemoProfile(userId, userEmail, userDisplayName);
+
+      const normalized =
+        stored.display_name || userDisplayName
+          ? {
+              ...stored,
+              display_name: stored.display_name || userDisplayName || 'Demo User',
+            }
+          : stored;
+
+      writeDemoProfile(userId, normalized);
+      setProfile(normalized);
       setLoading(false);
-      return;
+      return normalized;
     }
 
     try {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('users')
         .select('*')
         .eq('id', userId)
         .maybeSingle();
@@ -109,14 +199,20 @@ export function useProfile(userId: string | undefined, userEmail?: string | null
 
       if (!data) {
         if (!userEmail) {
-          console.warn('No profile row exists and no email provided to create one.');
+          console.warn(
+            'No profile row exists and no email provided to create one.',
+          );
           setProfile(null);
         } else {
-          const created = await createServerProfile(userId, userEmail);
+          const created = await createServerProfile(
+            userId,
+            userEmail,
+            userDisplayName,
+          );
           setProfile(created);
         }
       } else {
-        setProfile(data);
+        setProfile(mapUserToProfile(data));
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
@@ -129,7 +225,10 @@ export function useProfile(userId: string | undefined, userEmail?: string | null
     if (!userId) return;
 
     if (isDemoUserId(userId)) {
-      const current = profile ?? readDemoProfile(userId) ?? createDemoProfile(userId, userEmail);
+      const current =
+        profile ??
+        readDemoProfile(userId) ??
+        createDemoProfile(userId, userEmail, userDisplayName);
       const updatedProfile: Profile = {
         ...current,
         ...updates,
@@ -141,31 +240,22 @@ export function useProfile(userId: string | undefined, userEmail?: string | null
     }
 
     try {
-      let currentProfile = profile;
-      if (!currentProfile) {
-        if (!userEmail) {
-          console.warn('Cannot create profile without an email address.');
-          return;
-        }
-        currentProfile = await createServerProfile(userId, userEmail);
+      const payload = buildUserUpdatePayload(updates, profile, userEmail);
+      if (Object.keys(payload).length === 0) {
+        return profile;
       }
 
-      const updatedProfile: Profile = {
-        ...currentProfile,
-        ...updates,
-        email: userEmail || currentProfile.email,
-        updated_at: new Date().toISOString(),
-      };
-
       const { data, error } = await supabase
-        .from('profiles')
-        .upsert(updatedProfile, { onConflict: 'id' })
+        .from('users')
+        .update(payload)
+        .eq('id', userId)
         .select()
         .single();
 
       if (error) throw error;
-      setProfile(data);
-      return data;
+      const normalized = mapUserToProfile(data);
+      setProfile(normalized);
+      return normalized;
     } catch (error) {
       console.error('Error updating profile:', error);
       throw error;
