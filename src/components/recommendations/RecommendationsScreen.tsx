@@ -248,6 +248,15 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
         return;
       }
 
+      // ボードの作成者を取得
+      const { data: boardData, error: boardError } = await supabase
+        .from('board')
+        .select('user_id, title')
+        .eq('id', boardId)
+        .single();
+
+      if (boardError) throw boardError;
+
       // いいね追加
       const { error } = await supabase
         .from('like')
@@ -269,6 +278,28 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
       }
       
       setLikedBoardIds(prev => new Set([...prev, boardId]));
+
+      // ボード作成者に通知を送信（自分自身には送らない）
+      if (boardData.user_id !== user.id) {
+        try {
+          const { error: notificationError } = await supabase
+            .from('notification')
+            .insert({
+              user_id: boardData.user_id, // ボード作成者
+              from_user_id: user.id, // いいねした人
+              board_id: boardId,
+              type: 'like',
+              message: `${user.email?.split('@')[0] || 'ユーザー'}さんが「${boardData.title}」にいいねしました`,
+            });
+
+          if (notificationError) {
+            console.error('通知の送信に失敗しました:', notificationError);
+            // 通知エラーは非ブロッキング（いいねは成功している）
+          }
+        } catch (notifError) {
+          console.error('通知送信エラー:', notifError);
+        }
+      }
 
       // 次のカードに進む
       moveToNext();

@@ -35,16 +35,35 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
     setError('');
 
     try {
-      const { error } = await supabase
+      // ボードを作成
+      const { data: boardData, error: boardError } = await supabase
         .from('board')
         .insert({
           user_id: user.id,
           title: formData.title,
           purpose: formData.purpose,
           limit_count: formData.limit_count ? parseInt(formData.limit_count) : 10,
-        });
+        })
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (boardError) throw boardError;
+
+      // ボード作成者を参加者として追加
+      if (boardData) {
+        const { error: participantError } = await supabase
+          .from('board_participants')
+          .insert({
+            user_id: user.id,
+            board_id: boardData.id,
+            status: 'accepted',
+          });
+
+        if (participantError) {
+          console.error('参加者の追加に失敗:', participantError);
+          // エラーでも続行（既に存在する可能性がある）
+        }
+      }
 
       onNavigate('board');
     } catch (err: any) {
