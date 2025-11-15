@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { sendAutoMessage } from '../../lib/autoMessage';
 import { useAuth } from '../../hooks/useAuth';
-import { DEFAULT_JOIN_MESSAGE_TEMPLATE } from '../../constants/messages';
+import { DEFAULT_JOIN_MESSAGE_TEMPLATE, HEART_APPROVED_MESSAGE_TEMPLATE } from '../../constants/messages';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import { Users, Calendar, User, MessageCircle, Heart, Check, X, Bell } from 'lucide-react';
@@ -279,6 +279,31 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
           console.error('[PostBoard] ステータス更新エラー:', updateError);
           throw new Error(`ステータスの更新に失敗しました: ${updateError.message}`);
         }
+
+        // 承認されたユーザーの名前を取得してメッセージを送信
+        const { data: approvedUserData } = await supabase
+          .from('users')
+          .select('name')
+          .eq('id', likeRequest.user_id)
+          .single();
+
+        const approvedUserName = approvedUserData?.name || 'ユーザー';
+        const messageContent = HEART_APPROVED_MESSAGE_TEMPLATE.replace('[USERNAME]', approvedUserName);
+
+        // ホスト（承認した人）がメッセージを送信
+        const { error: messageError } = await supabase
+          .from('message')
+          .insert({
+            board_id: likeRequest.board_id,
+            user_id: user.id, // ホスト（承認した人）が送信
+            content: messageContent,
+          });
+
+        if (messageError) {
+          console.warn('[PostBoard] ハート認証メッセージ送信に失敗しました', messageError);
+        } else {
+          console.log('[PostBoard] ハート認証メッセージ送信に成功');
+        }
       } else {
         // いいねした人をboard_participantsに追加
         console.log('[PostBoard] いいねした人を参加者として追加');
@@ -349,18 +374,30 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         } else {
           console.log('[PostBoard] 参加者の追加に成功:', participantData);
           
-          // 承認されたユーザーが自動メッセージを送信
-          const autoMessageResult = await sendAutoMessage({
-            boardId: likeRequest.board_id,
-            userId: likeRequest.user_id,
-            messageTemplate: DEFAULT_JOIN_MESSAGE_TEMPLATE,
-          });
+          // 承認されたユーザーの名前を取得してメッセージを送信
+          const { data: approvedUserData } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', likeRequest.user_id)
+            .single();
 
-          if (!autoMessageResult.success) {
-            console.warn('[PostBoard] 承認されたユーザーの自動メッセージ送信に失敗しました', autoMessageResult.error);
+          const approvedUserName = approvedUserData?.name || 'ユーザー';
+          const messageContent = HEART_APPROVED_MESSAGE_TEMPLATE.replace('[USERNAME]', approvedUserName);
+
+          // ホスト（承認した人）がメッセージを送信
+          const { error: messageError } = await supabase
+            .from('message')
+            .insert({
+              board_id: likeRequest.board_id,
+              user_id: user.id, // ホスト（承認した人）が送信
+              content: messageContent,
+            });
+
+          if (messageError) {
+            console.warn('[PostBoard] ハート認証メッセージ送信に失敗しました', messageError);
             // RLSポリシーエラーの可能性があるが、承認処理自体は成功しているので続行
           } else {
-            console.log('[PostBoard] 承認されたユーザーの自動メッセージ送信に成功');
+            console.log('[PostBoard] ハート認証メッセージ送信に成功');
           }
         }
       }

@@ -295,6 +295,11 @@ export default function ChatScreen({}: ChatScreenProps) {
     });
   };
 
+  // ハート認証の通知メッセージかどうかを判定
+  const isHeartApprovedMessage = (content: string) => {
+    return content.includes('ハートが認証され、グループチャットに追加されました');
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -373,39 +378,55 @@ export default function ChatScreen({}: ChatScreenProps) {
             </div>
           ) : (
             <>
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex ${message.user_id === user?.id ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div className={`flex items-start gap-2 max-w-xs lg:max-w-md ${message.user_id === user?.id ? 'flex-row-reverse' : ''}`}>
-                    {/* アバターと名前 */}
-                    <div className="flex flex-col items-center flex-shrink-0">
-                      <div className="w-10 h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
-                        {message.users.photo ? (
-                          <img 
-                            src={message.users.photo} 
-                            alt={message.users.name || 'Avatar'} 
-                            className="w-full h-full rounded-full object-cover"
-                          />
-                        ) : (
-                          <User className="h-5 w-5 text-white" />
-                        )}
+              {messages.map((message) => {
+                const isSystemMessage = isHeartApprovedMessage(message.content);
+                
+                // システムメッセージ（ハート認証通知）の場合はグレー表示
+                if (isSystemMessage) {
+                  return (
+                    <div key={message.id} className="flex justify-center my-2">
+                      <div className="bg-gray-200 text-gray-600 rounded-lg px-4 py-2 max-w-md">
+                        <p className="text-sm text-center">{message.content}</p>
                       </div>
-                      <p className="text-xs text-gray-600 mt-1 max-w-[60px] truncate">
-                        {message.users.name || 'ユーザー'}
-                      </p>
                     </div>
-                    {/* メッセージボックス */}
-                    <div className={`rounded-lg px-3 py-2 ${message.user_id === user?.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'}`}>
-                      <p className="text-sm">{message.content}</p>
-                      <p className={`text-xs mt-1 ${message.user_id === user?.id ? 'text-blue-200' : 'text-gray-500'}`}>
-                        {message.created_at ? formatTime(message.created_at) : '不明'}
-                      </p>
+                  );
+                }
+                
+                // 通常のメッセージ
+                return (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.user_id === user?.id ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`flex items-start gap-2 max-w-xs lg:max-w-md ${message.user_id === user?.id ? 'flex-row-reverse' : ''}`}>
+                      {/* アバターと名前 */}
+                      <div className="flex flex-col items-center flex-shrink-0">
+                        <div className="w-10 h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
+                          {message.users.photo ? (
+                            <img 
+                              src={message.users.photo} 
+                              alt={message.users.name || 'Avatar'} 
+                              className="w-full h-full rounded-full object-cover"
+                            />
+                          ) : (
+                            <User className="h-5 w-5 text-white" />
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1 max-w-[60px] truncate">
+                          {message.users.name || 'ユーザー'}
+                        </p>
+                      </div>
+                      {/* メッセージボックス */}
+                      <div className={`rounded-lg px-3 py-2 ${message.user_id === user?.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                        <p className="text-sm">{message.content}</p>
+                        <p className={`text-xs mt-1 ${message.user_id === user?.id ? 'text-blue-200' : 'text-gray-500'}`}>
+                          {message.created_at ? formatTime(message.created_at) : '不明'}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <div ref={messagesEndRef} />
             </>
           )}
