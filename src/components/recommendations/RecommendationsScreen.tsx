@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import RecommendationCard from './RecommendationCard';
@@ -14,7 +14,6 @@ interface Board {
   current_participants: number;
   created_at: string | null;
   updated_at: string | null;
-
   users: {
     name: string;
     photo: string | null;
@@ -25,7 +24,9 @@ interface RecommendationsScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-export default function RecommendationsScreen({ onNavigate }: RecommendationsScreenProps) {
+export default function RecommendationsScreen({
+  onNavigate,
+}: RecommendationsScreenProps) {
   const { user } = useAuth();
   const [recommendedBoards, setRecommendedBoards] = useState<Board[]>([]);
   const [likedBoard, setLikedBoard] = useState<Board | null>(null); // いいねは1つだけ
@@ -33,7 +34,6 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   const [loading, setLoading] = useState(false);
   const [likeLoading, setLikeLoading] = useState<string | null>(null);
   const [likedBoardIds, setLikedBoardIds] = useState<Set<string>>(new Set());
-  const [skippedBoardIds, setSkippedBoardIds] = useState<Set<string>>(new Set());
 
   const fetchRecommendations = async () => {
     console.log('[Recommendations] fetchRecommendations開始', { userId: user?.id });
@@ -315,7 +315,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
     }
   };
 
-  const handleSkip = (boardId: string) => {
+  const handleSkip = (_boardId: string) => {
     // 興味なし：スキップして次のカードに進む（スキップリストには追加しない - 再表示可能にする）
     moveToNext();
   };
