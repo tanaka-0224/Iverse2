@@ -1,34 +1,35 @@
-import React, { useState } from 'react';
-import { Heart, User, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { FiHeart, FiUser, FiClock } from 'react-icons/fi';
 import Button from '../ui/Button';
 
-interface Post {
+interface Board {
   id: string;
   title: string;
-  category: string;
-  description: string;
-  max_participants: number | null;
-  current_participants: number;
-  created_at: string;
-  profiles: {
-    display_name: string | null;
-    avatar_url: string | null;
+  purpose: string | null;
+  limit_count: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+
+  users: {
+    name: string;
+    photo: string | null;
   };
 }
 
+
 interface RecommendationCardProps {
-  post: Post;
-  onLike: (postId: string) => void;
+  board: Board;
+  onLike: (boardId: string) => void;
   hasLiked: boolean;
   loading: boolean;
 }
 
-export default function RecommendationCard({ post, onLike, hasLiked, loading }: RecommendationCardProps) {
+export default function RecommendationCard({ board, onLike, hasLiked, loading }: RecommendationCardProps) {
   const [liked, setLiked] = useState(hasLiked);
 
   const handleLike = () => {
     setLiked(!liked);
-    onLike(post.id);
+    onLike(board.id);
   };
 
   const formatDate = (dateString: string) => {
@@ -44,44 +45,44 @@ export default function RecommendationCard({ post, onLike, hasLiked, loading }: 
       <div className="flex items-start justify-between">
         <div className="flex items-center space-x-3">
           <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
-            {post.profiles.avatar_url ? (
+            {board.users.photo ? (
               <img 
-                src={post.profiles.avatar_url} 
+                src={board.users.photo} 
                 alt="Avatar" 
                 className="w-full h-full rounded-full object-cover"
               />
             ) : (
-              <User className="h-6 w-6 text-white" />
+              <FiUser className="h-6 w-6 text-white" />
             )}
           </div>
           <div>
             <p className="font-medium text-gray-900">
-              {post.profiles.display_name || 'Anonymous'}
+              {board.users.name || 'Anonymous'}
             </p>
             <div className="flex items-center space-x-2 text-sm text-gray-500">
-              <Clock className="h-4 w-4" />
-              <span>{formatDate(post.created_at)}</span>
+              <FiClock className="h-4 w-4" />
+              <span>{formatDate(board.created_at || '')}</span>
             </div>
           </div>
         </div>
         
-        <span className="bg-blue-100 text-blue-800 text-sm px-3 py-1 rounded-full font-medium">
-          {post.category}
-        </span>
+        {/* <span className="bg-blue-100 text-blue-800 text-sm px-3 py-1 rounded-full font-medium">
+          {board.category}
+        </span> */}
       </div>
 
       <div className="space-y-2">
-        <h3 className="text-lg font-bold text-gray-900 line-clamp-2">{post.title}</h3>
-        <p className="text-gray-600 line-clamp-3">{post.description}</p>
+        <h3 className="text-lg font-bold text-gray-900 line-clamp-2">{board.title}</h3>
+        <p className="text-gray-600 line-clamp-3">{board.purpose}</p>
       </div>
 
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4 text-sm text-gray-500">
           <div className="flex items-center space-x-1">
-            <User className="h-4 w-4" />
+            <FiUser className="h-4 w-4" />
             <span>
-              {post.current_participants}
-              {post.max_participants && `/${post.max_participants}`}名
+              {board.limit_count}
+              {/* {board.max_participants && `/${board.max_participants}`}名 */}
             </span>
           </div>
         </div>
@@ -96,7 +97,7 @@ export default function RecommendationCard({ post, onLike, hasLiked, loading }: 
             ${liked ? 'bg-pink-500 hover:bg-pink-600 border-pink-500' : ''}
           `}
         >
-          <Heart className={`h-4 w-4 mr-1 ${liked ? 'fill-current' : ''}`} />
+          <FiHeart className={`h-4 w-4 mr-1 ${liked ? 'fill-current' : ''}`} />
           {liked ? 'いいね済み' : 'いいね'}
         </Button>
       </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi';
 
 interface AuthFormProps {
   mode: 'login' | 'register';
@@ -13,6 +13,7 @@ interface AuthFormProps {
 export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,7 +27,7 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
 
     try {
       if (mode === 'register') {
-        await signUp(email, password);
+        await signUp(email, password, name);
       } else {
         await signIn(email, password);
       }
@@ -54,6 +55,17 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {mode === 'register' && (
+            <Input
+              type="text"
+              label="名前"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="お名前を入力"
+              required
+            />
+          )}
+          
           <div className="relative">
             <Input
               type="email"
@@ -64,7 +76,7 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
               placeholder="example@email.com"
               required
             />
-            <Mail className="absolute left-3 top-8 h-5 w-5 text-gray-400" />
+            <FiMail className="absolute left-3 top-8 h-5 w-5 text-gray-400" />
           </div>
 
           <div className="relative">
@@ -77,13 +89,13 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
               placeholder="パスワードを入力"
               required
             />
-            <Lock className="absolute left-3 top-8 h-5 w-5 text-gray-400" />
+            <FiLock className="absolute left-3 top-8 h-5 w-5 text-gray-400" />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-8 text-gray-400 hover:text-gray-600 transition-colors"
             >
-              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              {showPassword ? <FiEyeOff className="h-5 w-5" /> : <FiEye className="h-5 w-5" />}
             </button>
           </div>
 

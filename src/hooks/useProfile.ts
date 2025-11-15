@@ -2,56 +2,50 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/database.types';
 
-type Profile = Database['public']['Tables']['profiles']['Row'];
+type UserRow = Database['public']['Tables']['users']['Row'];
+type UserInsert = Database['public']['Tables']['users']['Insert'];
 
-const hasWindow = () => typeof window !== 'undefined';
-const canUseStorage = () => hasWindow() && typeof window.localStorage !== 'undefined';
-const isDemoUserId = (userId?: string) => Boolean(userId?.startsWith('demo-'));
-const getDemoProfileKey = (userId: string) => `demo-profile:${userId}`;
-
-const readDemoProfile = (userId: string): Profile | null => {
-  if (!canUseStorage()) return null;
-
-  try {
-    const raw = window.localStorage.getItem(getDemoProfileKey(userId));
-    return raw ? (JSON.parse(raw) as Profile) : null;
-  } catch (error) {
-    console.warn('Failed to parse stored demo profile', error);
-    return null;
-  }
-};
-
-const writeDemoProfile = (userId: string, profile: Profile | null) => {
-  if (!canUseStorage()) return;
-
-  try {
-    if (profile) {
-      window.localStorage.setItem(getDemoProfileKey(userId), JSON.stringify(profile));
-    } else {
-      window.localStorage.removeItem(getDemoProfileKey(userId));
-    }
-  } catch (error) {
-    console.warn('Failed to persist demo profile', error);
-  }
-};
-
-const createDemoProfile = (userId: string): Profile => {
-  const now = new Date().toISOString();
+const buildInsertPayload = (
+  userId: string,
+  email?: string | null,
+  overrides?: Partial<UserRow>,
+): UserInsert => {
+  const fallbackEmail = email || `${userId}@local.dev`;
+  const timestamp = new Date().toISOString();
   return {
     id: userId,
-    email: `${userId}@demo.local`,
-    display_name: 'Demo User',
-    bio: null,
-    avatar_url: null,
-    skill: null,
-    purpose: null,
-    created_at: now,
-    updated_at: now,
+    email: overrides?.email ?? fallbackEmail,
+    name:
+      overrides?.name ??
+      fallbackEmail.split('@')[0] ??
+      'ユーザー',
+    password: '',
+    photo: overrides?.photo ?? null,
+    purpose: overrides?.purpose ?? null,
+    skill: overrides?.skill ?? null,
+    created_at: overrides?.created_at ?? timestamp,
+    updated_at: overrides?.updated_at ?? timestamp,
   };
 };
 
-export function useProfile(userId: string | undefined) {
-  const [profile, setProfile] = useState<Profile | null>(null);
+const createServerProfile = async (
+  userId: string,
+  email?: string | null,
+  overrides?: Partial<UserRow>,
+) => {
+  const payload = buildInsertPayload(userId, email, overrides);
+  const { data, error } = await supabase
+    .from('users')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+};
+
+export function useProfile(userId: string | undefined, userEmail?: string | null) {
+  const [profile, setProfile] = useState<UserRow | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -61,63 +55,72 @@ export function useProfile(userId: string | undefined) {
     }
 
     fetchProfile();
-  }, [userId]);
+  }, [userId, userEmail]);
 
   const fetchProfile = async () => {
     if (!userId) return;
 
-    if (isDemoUserId(userId)) {
-      const stored = readDemoProfile(userId) ?? createDemoProfile(userId);
-      writeDemoProfile(userId, stored);
-      setProfile(stored);
-      setLoading(false);
-      return;
-    }
-
     try {
       const { data, error } = await supabase
-        .from('profiles')
+        .from('users')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
+
+      if (!data) {
+        const created = await createServerProfile(userId, userEmail);
+        setProfile(created);
+        return created;
+      }
+
       setProfile(data);
+      return data;
     } catch (error) {
       console.error('Error fetching profile:', error);
+      throw error;
     } finally {
       setLoading(false);
     }
   };
 
-  const updateProfile = async (updates: Partial<Profile>) => {
-    if (!userId) return;
-
-    if (isDemoUserId(userId)) {
-      const current = profile ?? readDemoProfile(userId) ?? createDemoProfile(userId);
-      const updatedProfile: Profile = {
-        ...current,
-        ...updates,
-        updated_at: new Date().toISOString(),
-      };
-      setProfile(updatedProfile);
-      writeDemoProfile(userId, updatedProfile);
-      return updatedProfile;
+  const updateProfile = async (updates: Partial<UserRow>) => {
+    if (!userId) {
+      console.error('[useProfile] No userId provided for updateProfile');
+      return;
     }
+
+    const { password, ...rest } = updates;
+    const safeUpdates: Partial<UserRow> = { ...rest };
+
+    if (Object.keys(safeUpdates).length === 0) {
+      return profile;
+    }
+
+    safeUpdates.updated_at = new Date().toISOString();
 
     try {
       const { data, error } = await supabase
-        .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
+        .from('users')
+        .update(safeUpdates)
         .eq('id', userId)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          const created = await createServerProfile(userId, userEmail, safeUpdates);
+          setProfile(created);
+          return created;
+        }
+        throw error;
+      }
+
       setProfile(data);
       return data;
     } catch (error) {
-      console.error('Error updating profile:', error);
+      console.error('[useProfile] Error updating profile:', error);
       throw error;
     }
   };

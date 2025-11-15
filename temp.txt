@@ -1,0 +1,267 @@
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
+import LoadingSpinner from '../ui/LoadingSpinner';
+import Button from '../ui/Button';
+import { Users, Calendar, User, MessageCircle } from 'lucide-react';
+
+interface Board {
+  id: string;
+  title: string;
+  purpose: string | null;
+  limit_count: number | null;
+  created_at: string | null;
+  users: {
+    name: string;
+    photo: string | null;
+  };
+}
+
+interface PostBoardScreenProps {
+  onNavigate: (screen: string) => void;
+}
+
+type BoardListType = 'my_posts' | 'liked_posts'; // 庁 霑ｽ蜉: 陦ｨ遉ｺ繝｢繝ｼ繝峨ｒ螳夂ｾｩ
+
+export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
+  const { user } = useAuth();
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeList, setActiveList] = useState<BoardListType>('my_posts'); // 庁 霑ｽ蜉: 迴ｾ蝨ｨ縺ｮ陦ｨ遉ｺ繝｢繝ｼ繝・
+
+  useEffect(() => {
+    fetchBoards(activeList);
+  }, [user, activeList]); 
+
+  // const fetchBoards = async () => {
+  //   try {
+  //     const { data, error } = await supabase
+  //       .from('board')
+  //       .select(`
+  //         id,
+  //         title,
+  //         purpose,
+  //         limit_count,
+  //         created_at,
+  //         users (
+  //           name,
+  //           photo
+  //         )
+  //       `)
+  //       .order('created_at', { ascending: false });
+
+  //     if (error) throw error;
+  //     setBoards(data || []);
+  //   } catch (error) {
+  //     console.error('Error fetching boards:', error);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+  const fetchBoards = async (listType: BoardListType) => {
+    if (!user) {
+        setLoading(false);
+        return;
+    }
+    setLoading(true);
+    let query = supabase.from('board').select(`
+        id, title, purpose, limit_count, created_at,
+        users ( name, photo )
+    `);
+
+    // 庁 繧ｯ繧ｨ繝ｪ縺ｮ蛻・ｊ譖ｿ縺医Ο繧ｸ繝・け
+    if (listType === 'my_posts') {
+        // 閾ｪ蛻・・菴懈・縺励◆蜍滄寔繝懊・繝峨・縺ｿ繧貞叙蠕・
+        query = query.eq('user_id', user.id);
+        
+    } else if (listType === 'liked_posts') {
+        // 縺・＞縺ｭ縺励◆繝懊・繝峨・縺ｿ繧貞叙蠕・(LIKE繝・・繝悶Ν繧堤ｵ仙粋)
+        // query = query.in('id', supabase.from('like').select('board_id').eq('user_id', user.id)
+        // );
+        const { data: likedData } = await supabase
+        .from('like')
+        .select('board_id')
+        .eq('user_id', user.id);
+    
+        const likedBoardIds = likedData?.map(item => item.board_id) || [];
+        
+        // 蜿門ｾ励＠縺櫑D縺ｮ驟榊・繧・.in() 縺ｫ貂｡縺・
+        query = query.in('id', likedBoardIds);
+    }
+
+    try {
+      const { data, error } = await query.order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setBoards(data || []);
+    } catch (error) {
+      console.error(`Error fetching ${listType} boards:`, error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleJoinBoard = async (boardId: string) => {
+    if (!user) return;
+
+    try {
+      // Check if user is already a participant
+      const { data: existingParticipant } = await supabase
+        .from('board_participants')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('board_id', boardId)
+        .single();
+
+      if (existingParticipant) {
+        onNavigate('chat');
+        return;
+      }
+
+      // Add user as a participant
+      const { error: participantError } = await supabase
+        .from('board_participants')
+        .insert({
+          user_id: user.id,
+          board_id: boardId,
+          status: 'accepted',
+        });
+
+      if (participantError) throw participantError;
+
+      onNavigate('chat');
+    } catch (error) {
+      console.error('Error joining board:', error);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ja-JP', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  // 庁 蜍滄寔縺後↑縺・ｴ蜷医・繝ｭ繧ｸ繝・け繧堤炊諠ｳ縺ｫ蜷医ｏ縺帙※螟画峩
+  if (boards.length === 0) {
+    if (activeList === 'my_posts') {
+        return (
+            // 蜍滄寔繧剃ｽ懈・縺励※縺・↑縺・ｴ蜷医・陦ｨ遉ｺ縺ｨ縲∽ｽ懈・逕ｻ髱｢縺ｸ縺ｮ隱伜ｰ・
+            <div className="text-center py-12 space-y-4">
+                <h3 className="text-lg font-medium text-gray-900">蜍滄寔繧剃ｽ懈・縺励∪縺励ｇ縺・/h3>
+                <p className="text-gray-500">縺ゅ↑縺溘・繝励Ο繧ｸ繧ｧ繧ｯ繝医ｒ蜈ｬ髢九〒縺阪∪縺・/p>
+                <Button onClick={() => onNavigate('createpost')}>譁ｰ隕丞供髮・ｽ懈・</Button>
+            </div>
+        );
+    }
+    if (activeList === 'liked_posts') {
+      return (
+          // 縺・＞縺ｭ縺励◆蜍滄寔縺後↑縺・ｴ蜷医・陦ｨ遉ｺ
+          <div className="text-center py-12 space-y-4">
+              <h3 className="text-lg font-medium text-gray-900">縺・＞縺ｭ縺励◆蜍滄寔縺後≠繧翫∪縺帙ｓ</h3>
+              <p className="text-gray-500">縺翫☆縺吶ａ逕ｻ髱｢縺ｧ豌励↓縺ｪ繧九・繝ｼ繝峨ｒ隕九▽縺代※縺ｿ縺ｾ縺励ｇ縺・/p>
+              <Button onClick={() => onNavigate('recommendations')}>縺翫☆縺吶ａ繧定ｦ九ｋ</Button>
+          </div>
+      );
+  }
+
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center space-y-2">
+        <div className="flex items-center justify-center space-x-2">
+          <Users className="h-8 w-8 text-purple-500" />
+          <h1 className="text-2xl font-bold text-gray-900">蜍滄寔謗ｲ遉ｺ譚ｿ</h1>
+        </div>
+        <p className="text-gray-600">蜿ょ刈縺励◆縺・・繝ｭ繧ｸ繧ｧ繧ｯ繝医ｒ隕九▽縺代ｈ縺・/p>
+      </div>
+
+      {/* <div className="space-y-4">
+        {boards.length === 0 ? (
+          <div className="text-center py-12 space-y-4">
+            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
+              <Users className="h-12 w-12 text-gray-400" />
+            </div>
+            <div className="space-y-2">
+              <h3 className="text-lg font-medium text-gray-900">繝懊・繝峨′縺ゅｊ縺ｾ縺帙ｓ</h3>
+              <p className="text-gray-500">譁ｰ縺励＞繝懊・繝峨′菴懈・縺輔ｌ繧九∪縺ｧ縺雁ｾ・■縺上□縺輔＞</p>
+            </div>
+          </div>
+        ) : (
+          boards.map((board) => (
+            <div
+              key={board.id}
+              className="bg-white rounded-xl shadow-md p-6 space-y-4 border border-gray-100 hover:shadow-lg transition-all duration-300"
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex items-center space-x-3">
+                  <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                    {board.users.photo ? (
+                      <img 
+                        src={board.users.photo} 
+                        alt="Avatar" 
+                        className="w-full h-full rounded-full object-cover"
+                      />
+                    ) : (
+                      <User className="h-6 w-6 text-white" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">
+                      {board.users.name}
+                    </p>
+                    <div className="flex items-center space-x-2 text-sm text-gray-500">
+                      <Calendar className="h-4 w-4" />
+                      <span>{board.created_at ? formatDate(board.created_at) : '荳肴・'}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <span className="bg-purple-100 text-purple-800 text-sm px-3 py-1 rounded-full font-medium">
+                  繝懊・繝・
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold text-gray-900">{board.title}</h3>
+                <p className="text-gray-600">{board.purpose}</p>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4 text-sm text-gray-500">
+                  <div className="flex items-center space-x-1">
+                    <Users className="h-4 w-4" />
+                    <span>
+                      蜿ょ刈閠・焚蛻ｶ髯・ {board.limit_count || 10}蜷・
+                    </span>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={() => handleJoinBoard(board.id)}
+                  className="flex items-center space-x-2"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  <span>蜿ょ刈縺吶ｋ</span>
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div> */}
+    </div>
+  );
+}
+

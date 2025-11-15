@@ -5,7 +5,7 @@ import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
 import LoadingSpinner from '../ui/LoadingSpinner';
-import { User as UserIcon, Settings, Shield, LogOut, Save } from 'lucide-react';
+import { FiUser, FiSettings, FiLogOut, FiSave } from 'react-icons/fi';
 import { supabase } from '../../lib/supabase';
 
 const fileToDataUrl = (file: File) =>
@@ -18,49 +18,106 @@ const fileToDataUrl = (file: File) =>
 
 export default function AccountScreen() {
   const { user, signOut } = useAuth();
-  const { profile, loading: profileLoading, updateProfile } = useProfile(user?.id);
+  const { profile, loading: profileLoading, updateProfile, refetch } = useProfile(
+    user?.id,
+    user?.email,
+  );
   const [editing, setEditing] = useState(false);
   const [formData, setFormData] = useState({
-    display_name: '',
+    name: '',
     skill: '',
     purpose: '',
+    photo: '',
   });
-  const [avatarUrl, setAvatarUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   React.useEffect(() => {
-    setFormData({
-      display_name: profile?.display_name || '',
-      skill: profile?.skill || '',
-      purpose: profile?.purpose || '',
-    });
-    setAvatarUrl(profile?.avatar_url || '');
-    setSelectedFile(null);
-    setPreviewUrl(prev => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
+    if (profile) {
+      setFormData({
+        name: profile.name || '',
+        skill: profile.skill || '',
+        purpose: profile.purpose || '',
+        photo: profile.photo || '',
+      });
+      setPreviewUrl(null);
+    }
   }, [profile]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value,
+      [name]: value
     }));
   };
 
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      let photoUrl: string | null = formData.photo ? formData.photo : null;
+
+      if (selectedFile) {
+        const uploadedUrl = await uploadAvatar(selectedFile);
+        if (uploadedUrl) {
+          photoUrl = uploadedUrl;
+        } else {
+          // fall back to embedding the image data directly when storage upload fails
+          const inlineImage = await fileToDataUrl(selectedFile);
+          photoUrl = inlineImage;
+        }
+      }
+
+      const updates = {
+        name: formData.name,
+        skill: formData.skill || null,
+        purpose: formData.purpose || null,
+        photo: photoUrl,
+      };
+
+      console.log('[AccountScreen] Saving profile:', updates);
+      const result = await updateProfile(updates);
+      console.log('[AccountScreen] Update result:', result);
+      await refetch();
+      setFormData(prev => ({
+        ...prev,
+        photo: photoUrl ?? '',
+      }));
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      setPreviewUrl(null);
+      setSelectedFile(null);
+      setEditing(false);
+    } catch (error) {
+      console.error('[AccountScreen] Error updating profile:', error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
+    const file = e.target.files?.[0] || null;
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
     setSelectedFile(file);
-    setPreviewUrl(prev => {
-      if (prev) URL.revokeObjectURL(prev);
-      return file ? URL.createObjectURL(file) : null;
-    });
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+    } else {
+      setPreviewUrl(null);
+    }
   };
 
   const uploadAvatar = async (file: File) => {
@@ -71,88 +128,25 @@ export default function AccountScreen() {
       const fileExt = file.name.split('.').pop();
       const filePath = `avatars/${user.id}-${Date.now()}.${fileExt}`;
 
-      const { error } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('avatars')
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: true,
+          upsert: false,
         });
 
-      if (error) throw error;
+      if (uploadError) throw uploadError;
 
-      const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      return data.publicUrl;
+      const { data: publicUrlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      return publicUrlData.publicUrl;
     } catch (error) {
       console.error('Error uploading avatar:', error);
       return null;
     } finally {
       setUploading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      let nextAvatarUrl =
-        avatarUrl && avatarUrl.trim().length > 0
-          ? avatarUrl.trim()
-          : profile?.avatar_url || null;
-
-      if (selectedFile) {
-        if (isDemoUser) {
-          const dataUrl = await fileToDataUrl(selectedFile);
-          nextAvatarUrl = dataUrl;
-          setAvatarUrl(dataUrl);
-        } else {
-          const uploadedUrl = await uploadAvatar(selectedFile);
-          if (uploadedUrl) {
-            nextAvatarUrl = uploadedUrl;
-            setAvatarUrl(uploadedUrl);
-          }
-        }
-      }
-
-      await updateProfile({
-        display_name: formData.display_name || null,
-        skill: formData.skill || null,
-        purpose: formData.purpose || null,
-        avatar_url: nextAvatarUrl,
-      });
-
-      setAvatarUrl(nextAvatarUrl ?? '');
-      setEditing(false);
-      setSelectedFile(null);
-      setPreviewUrl(prev => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-    } catch (error) {
-      console.error('Error updating profile:', error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setEditing(false);
-    setSelectedFile(null);
-    setPreviewUrl(prev => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
-    setFormData({
-      display_name: profile?.display_name || '',
-      skill: profile?.skill || '',
-      purpose: profile?.purpose || '',
-    });
-    setAvatarUrl(profile?.avatar_url || '');
-  };
-
-  const handleLogout = async () => {
-    try {
-      await signOut();
-    } catch (error) {
-      console.error('Error signing out:', error);
     }
   };
 
@@ -164,44 +158,52 @@ export default function AccountScreen() {
     );
   }
 
-  const avatarPreview = previewUrl || avatarUrl || null;
+  const currentPhoto = previewUrl || formData.photo || profile?.photo || null;
 
   return (
     <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <div className="flex items-center justify-center space-x-2">
-          <UserIcon className="h-8 w-8 text-indigo-500" />
-          <h1 className="text-2xl font-bold text-gray-900">アカウント</h1>
+      {/* Profile Header with Image */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="text-center space-y-4">
+          <div className="flex flex-col items-center space-y-3">
+            <div className="w-32 h-32 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center overflow-hidden shadow-lg ring-4 ring-white">
+              {currentPhoto ? (
+                <img 
+                  src={currentPhoto} 
+                  alt="Avatar" 
+                  className="w-full h-full rounded-full object-cover"
+                  onError={(e) => {
+                    // 画像の読み込みに失敗した場合のフォールバック
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    target.parentElement?.classList.add('bg-gradient-to-r', 'from-indigo-500', 'to-purple-600');
+                  }}
+                />
+              ) : (
+                <FiUser className="h-16 w-16 text-white" />
+              )}
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                {profile?.name || 'Anonymous'}
+              </h1>
+              <p className="text-gray-500 mt-1">{user?.email}</p>
+            </div>
+          </div>
         </div>
-        <p className="text-gray-600">プロフィール情報を管理</p>
       </div>
 
-      <div className="bg-white rounded-3xl shadow-xl p-6 space-y-6">
-        <div className="text-center space-y-3">
-          <div className="w-24 h-24 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center mx-auto">
-            {avatarPreview ? (
-              <img
-                src={avatarPreview}
-                alt="Avatar preview"
-                className="w-full h-full rounded-full object-cover"
-              />
-            ) : (
-              <UserIcon className="h-12 w-12 text-white" />
-            )}
-          </div>
-          <h2 className="text-xl font-semibold text-gray-900">
-            {formData.display_name || 'Anonymous'}
-          </h2>
-        </div>
+      {/* Profile Section */}
+      <div className="bg-white rounded-xl shadow-lg p-6 space-y-6">
 
         {editing ? (
           <div className="space-y-4">
             <Input
-              name="display_name"
-              label="表示名"
-              value={formData.display_name}
+              name="name"
+              label="名前"
+              value={formData.name}
               onChange={handleInputChange}
-              placeholder="あなたの表示名を入力"
+              placeholder="あなたの名前を入力"
             />
 
             <Input
@@ -209,7 +211,7 @@ export default function AccountScreen() {
               label="スキル"
               value={formData.skill}
               onChange={handleInputChange}
-              placeholder="例: 英語、フロントエンド開発、コミュ力"
+              placeholder="あなたのスキルを入力"
             />
 
             <TextArea
@@ -217,55 +219,34 @@ export default function AccountScreen() {
               label="目的"
               value={formData.purpose}
               onChange={handleInputChange}
-              placeholder="例: 英検二級を取得したい、React仲間を探している など"
-              rows={3}
+              placeholder="あなたの目的や興味を入力してください"
+              rows={4}
             />
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                画像ファイルからアップロード
-              </label>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="flex-1">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="block w-full text-sm text-gray-600 file:mr-4 file:rounded-md file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-indigo-600 hover:file:bg-indigo-100"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    {selectedFile ? `選択済み: ${selectedFile.name}` : '選択されていません'}
-                  </p>
-                </div>
+              <label className="text-sm font-medium text-gray-700">プロフィール写真をアップロード</label>
+              <div className="flex items-center space-x-3">
+                <input type="file" accept="image/*" onChange={handleFileChange} />
+                {uploading && <span className="text-sm text-gray-500">アップロード中...</span>}
               </div>
               {previewUrl && (
-                <div className="flex items-center gap-3">
-                  <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-indigo-500">
-                    <img
-                      src={previewUrl}
-                      alt="プレビュー"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <p className="text-sm text-gray-500">
-                    保存するとこの画像がプロフィールに表示されます
-                  </p>
+                <div className="mt-2 w-24 h-24 rounded-full overflow-hidden border-2 border-indigo-500">
+                  <img src={previewUrl} alt="プレビュー" className="w-full h-full object-cover" />
                 </div>
               )}
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex space-x-3">
               <Button
                 onClick={handleSave}
                 loading={saving}
-                disabled={uploading}
                 className="flex-1 flex items-center justify-center space-x-2"
               >
-                <Save className="h-4 w-4" />
+                <FiSave className="h-4 w-4" />
                 <span>保存</span>
               </Button>
               <Button
-                onClick={handleCancel}
+                onClick={() => setEditing(false)}
                 variant="outline"
                 className="flex-1"
               >
@@ -275,15 +256,15 @@ export default function AccountScreen() {
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="bg-gray-50 rounded-2xl p-4 space-y-1">
-              <h3 className="text-xs font-bold tracking-wide text-gray-500 uppercase">スキル</h3>
-              <p className="text-gray-900 text-base">
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">スキル</h3>
+              <p className="text-gray-900">
                 {profile?.skill || 'まだスキルが設定されていません'}
               </p>
             </div>
-            <div className="bg-gray-50 rounded-2xl p-4 space-y-1">
-              <h3 className="text-xs font-bold tracking-wide text-gray-500 uppercase">目的</h3>
-              <p className="text-gray-900 text-base whitespace-pre-line">
+            <div>
+              <h3 className="text-sm font-medium text-gray-700 mb-1">目的</h3>
+              <p className="text-gray-900">
                 {profile?.purpose || 'まだ目的が設定されていません'}
               </p>
             </div>
@@ -293,14 +274,15 @@ export default function AccountScreen() {
               variant="outline"
               className="w-full flex items-center justify-center space-x-2"
             >
-              <Settings className="h-4 w-4" />
+              <FiSettings className="h-4 w-4" />
               <span>プロフィールを編集</span>
             </Button>
           </div>
         )}
       </div>
 
-      <div className="bg-white rounded-3xl shadow-lg p-6 space-y-4">
+      {/* Settings Section */}
+      {/* <div className="bg-white rounded-xl shadow-lg p-6 space-y-4">
         <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
           <Settings className="h-5 w-5" />
           <span>設定</span>
@@ -323,15 +305,16 @@ export default function AccountScreen() {
             </div>
           </button>
         </div>
-      </div>
+      </div> */}
 
-      <div className="bg-white rounded-3xl shadow-lg p-6">
+      {/* Logout Section */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
         <Button
           onClick={handleLogout}
           variant="outline"
           className="w-full flex items-center justify-center space-x-2 text-red-600 hover:text-red-800 hover:bg-red-50 border-red-200"
         >
-          <LogOut className="h-4 w-4" />
+          <FiLogOut className="h-4 w-4" />
           <span>ログアウト</span>
         </Button>
       </div>
