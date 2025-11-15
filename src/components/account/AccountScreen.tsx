@@ -84,7 +84,7 @@ export default function AccountScreen() {
     setUploading(true);
     try {
       const fileExt = file.name.split('.').pop();
-      const filePath = `avatars/${user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${user.id}/${Date.now()}.${fileExt}`;
 
       const { error } = await supabase.storage
         .from('avatars')
