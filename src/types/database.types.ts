@@ -138,6 +138,7 @@ export type Database = {
           id: string
           updated_at: string | null
           user_id: string
+          is_system: boolean
         }
         Insert: {
           board_id: string
@@ -146,6 +147,7 @@ export type Database = {
           id?: string
           updated_at?: string | null
           user_id: string
+          is_system: boolean
         }
         Update: {
           board_id?: string
@@ -154,6 +156,7 @@ export type Database = {
           id?: string
           updated_at?: string | null
           user_id?: string
+          is_system: boolean
         }
         Relationships: [
           {
