@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Session, User } from '@supabase/supabase-js';
+import { useState, useEffect } from 'react';
+import { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 const DEMO_USER_STORAGE_KEY = 'demo-auth-user';
@@ -91,46 +91,6 @@ const getSessionWithTimeout = async () => {
       setTimeout(() => resolve(fallback), SESSION_TIMEOUT_MS),
     ),
   ]);
-};
-
-const createOrUpdateUser = async (user: User) => {
-  try {
-    const displayName =
-      user.user_metadata?.name || user.email?.split('@')[0] || 'ユーザー';
-
-    const { data: existingUser, error: selectError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (selectError) throw selectError;
-
-    if (existingUser) {
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({
-          email: user.email || '',
-          name: displayName,
-        })
-        .eq('id', user.id);
-
-      if (updateError) throw updateError;
-    } else {
-      const { error: insertError } = await supabase
-        .from('users')
-        .insert({
-          id: user.id,
-          email: user.email || '',
-          name: displayName,
-          password: '',
-        });
-
-      if (insertError) throw insertError;
-    }
-  } catch (error) {
-    console.error('[Auth] createOrUpdateUser error:', error);
-  }
 };
 
 export function useAuth() {
@@ -260,6 +220,31 @@ export function useAuth() {
       }
     };
   }, []);
+  
+  const createOrUpdateUser = async (user: User) => {
+    console.log('[Auth] 6. createOrUpdateUser開始 (DB同期)'); 
+    try {
+        // 💡 修正案: upsertを使用し、SELECT + INSERT/UPDATE を1回の安全な操作にする
+        const { error: upsertError } = await supabase
+          .from('users')
+          .upsert({
+            // INSERT/UPDATEしたい全フィールド
+            id: user.id, // 主キー。競合チェックに使用されます。
+            email: user.email || '',
+            name: user.user_metadata?.name || user.email?.split('@')[0] || 'ユーザー',
+            password: '', 
+            // skill, purpose, photoなどの初期値もここで設定できます
+          }, { 
+              onConflict: 'id', // id が競合した場合、UPDATEとして処理する
+          });
+        
+        if (upsertError) throw upsertError;
+        console.log('[Auth] 8. usersテーブル同期完了 (upsert)'); // 💡 完了ログ
+
+    } catch (error) {
+        console.error('[Auth] createOrUpdateUserエラー:', error); 
+    }
+};
 
   const signUp = async (email: string, password: string, name: string) => {
     if (!isSupabaseConfigured) {
@@ -298,9 +283,9 @@ export function useAuth() {
 
       if (error) throw error;
 
+      // onAuthStateChangeが自動的にuserとsessionを更新するので、
+      // ここで直接設定する必要はない
       persistDemoUser(null);
-      setSession(data.session);
-      setUser(data.user);
       return data;
     } catch (error) {
       console.warn('Falling back to demo login mode', error);
