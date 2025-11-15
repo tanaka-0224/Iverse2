@@ -17,7 +17,7 @@ export function useAuth() {
       setUser(session?.user ?? null);
       setLoading(false);
     }).catch(err => {
-        console.error('[Auth] getSessionエラー:', err); // 💡 エラーログ
+        console.error('[Auth] getSessionエラー:', err); // 💡 エラーログ  
         setLoading(false);
     });
 
@@ -32,11 +32,10 @@ export function useAuth() {
       
       if (event === 'SIGNED_IN' && session?.user) {
         console.log('[Auth] 4. SIGNED_IN: createOrUpdateUserを実行'); // 💡 処理開始
-        await createOrUpdateUser(session.user);
-        console.log('[Auth] 5. createOrUpdateUser完了'); // 💡 処理完了
+        createOrUpdateUser(session.user).catch(err => {
+          console.error('[Auth] createOrUpdateUserエラー（非ブロッキング）:', err);
+        });
       }
-      
-      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
