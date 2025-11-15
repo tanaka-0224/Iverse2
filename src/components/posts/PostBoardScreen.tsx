@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
+import { sendAutoMessage } from '../../lib/autoMessage';
 import { useAuth } from '../../hooks/useAuth';
+import { DEFAULT_JOIN_MESSAGE_TEMPLATE } from '../../constants/messages';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import { Users, Calendar, User, MessageCircle, Heart, Check, X, Bell } from 'lucide-react';
@@ -346,6 +348,20 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
           }
         } else {
           console.log('[PostBoard] 参加者の追加に成功:', participantData);
+          
+          // 承認されたユーザーが自動メッセージを送信
+          const autoMessageResult = await sendAutoMessage({
+            boardId: likeRequest.board_id,
+            userId: likeRequest.user_id,
+            messageTemplate: DEFAULT_JOIN_MESSAGE_TEMPLATE,
+          });
+
+          if (!autoMessageResult.success) {
+            console.warn('[PostBoard] 承認されたユーザーの自動メッセージ送信に失敗しました', autoMessageResult.error);
+            // RLSポリシーエラーの可能性があるが、承認処理自体は成功しているので続行
+          } else {
+            console.log('[PostBoard] 承認されたユーザーの自動メッセージ送信に成功');
+          }
         }
       }
 
@@ -493,12 +509,16 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
     try {
       // Check if user is already a participant
-      const { data: existingParticipant } = await supabase
+      const { data: existingParticipant, error: existingParticipantError } = await supabase
         .from('board_participants')
         .select('id')
         .eq('user_id', user.id)
         .eq('board_id', boardId)
-        .single();
+        .maybeSingle();
+
+      if (existingParticipantError && existingParticipantError.code !== 'PGRST116') {
+        console.error('[PostBoard] 参加状況の確認に失敗しました:', existingParticipantError);
+      }
 
       if (existingParticipant) {
         onNavigate('chat');
@@ -516,9 +536,20 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
       if (participantError) throw participantError;
 
+      const autoMessageResult = await sendAutoMessage({
+        boardId,
+        userId: user.id,
+        messageTemplate: DEFAULT_JOIN_MESSAGE_TEMPLATE,
+      });
+
+      if (!autoMessageResult.success) {
+        console.warn('[PostBoard] 自動メッセージ送信に失敗しました', autoMessageResult.error);
+      }
+
       onNavigate('chat');
     } catch (error) {
       console.error('Error joining board:', error);
+      alert('トークへの参加に失敗しました。時間をおいて再度お試しください。');
     }
   };
 

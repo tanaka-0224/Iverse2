@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { Plus } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { sendAutoMessage } from '../../lib/autoMessage';
 import { useAuth } from '../../hooks/useAuth';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
-import { Plus } from 'lucide-react';
+import { DEFAULT_BOARD_CREATION_MESSAGE } from '../../constants/messages';
 
 interface CreatePostScreenProps {
   onNavigate: (screen: string) => void;
@@ -62,6 +64,16 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
         if (participantError) {
           console.error('参加者の追加に失敗:', participantError);
           // エラーでも続行（既に存在する可能性がある）
+        } else {
+          const autoMessageResult = await sendAutoMessage({
+            boardId: boardData.id,
+            userId: user.id,
+            content: DEFAULT_BOARD_CREATION_MESSAGE,
+          });
+
+          if (!autoMessageResult.success) {
+            console.warn('[CreatePost] 自動メッセージ送信に失敗しました', autoMessageResult.error);
+          }
         }
       }
 
