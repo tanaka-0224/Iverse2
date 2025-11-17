@@ -280,15 +280,30 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
           throw new Error(`ステータスの更新に失敗しました: ${updateError.message}`);
         }
 
-        // 承認されたユーザーの名前を取得してメッセージを送信
+        // 承認されたユーザーと承認した人（ホスト）の名前を取得してメッセージを送信
         const { data: approvedUserData } = await supabase
           .from('users')
           .select('name')
           .eq('id', likeRequest.user_id)
           .single();
 
+        const { data: approverData } = await supabase
+          .from('users')
+          .select('name')
+          .eq('id', user.id)
+          .single();
+
         const approvedUserName = approvedUserData?.name || 'ユーザー';
-        const messageContent = HEART_APPROVED_MESSAGE_TEMPLATE.replace('[USERNAME]', approvedUserName);
+        const approverName = approverData?.name || 'ユーザー';
+        console.log('[PostBoard] メッセージ作成:', {
+          approverName,
+          approvedUserName,
+          template: HEART_APPROVED_MESSAGE_TEMPLATE
+        });
+        const messageContent = HEART_APPROVED_MESSAGE_TEMPLATE
+          .replace('[APPROVER]', approverName)
+          .replace('[USERNAME]', approvedUserName);
+        console.log('[PostBoard] 最終メッセージ:', messageContent);
 
         // ホスト（承認した人）がメッセージを送信
         const { error: messageError } = await supabase
@@ -375,15 +390,24 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         } else {
           console.log('[PostBoard] 参加者の追加に成功:', participantData);
           
-          // 承認されたユーザーの名前を取得してメッセージを送信
+          // 承認されたユーザーと承認した人（ホスト）の名前を取得してメッセージを送信
           const { data: approvedUserData } = await supabase
             .from('users')
             .select('name')
             .eq('id', likeRequest.user_id)
             .single();
 
+          const { data: approverData } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', user.id)
+            .single();
+
           const approvedUserName = approvedUserData?.name || 'ユーザー';
-          const messageContent = HEART_APPROVED_MESSAGE_TEMPLATE.replace('[USERNAME]', approvedUserName);
+          const approverName = approverData?.name || 'ユーザー';
+          const messageContent = HEART_APPROVED_MESSAGE_TEMPLATE
+            .replace('[APPROVER]', approverName)
+            .replace('[USERNAME]', approvedUserName);
 
           // ホスト（承認した人）がメッセージを送信
           const { error: messageError } = await supabase
@@ -404,54 +428,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         }
       }
 
-      // ボード作成者の名前を取得
-      let creatorName = 'ユーザー';
-      try {
-        const { data: creatorData } = await supabase
-          .from('users')
-          .select('name, email')
-          .eq('id', user.id)
-          .single();
-        
-        if (creatorData) {
-          creatorName = creatorData.name || creatorData.email?.split('@')[0] || 'ユーザー';
-        }
-      } catch (nameError) {
-        console.error('ユーザー名の取得に失敗:', nameError);
-        // エラーでも続行
-      }
-
-      // いいねした人に承認通知を送信（システムメッセージとして）
-      console.log('[PostBoard] 承認通知を送信:', {
-        user_id: likeRequest.user_id,
-        from_user_id: user.id,
-        board_id: likeRequest.board_id,
-        type: 'accepted'
-      });
-
-      const { data: notificationData, error: notificationError } = await supabase
-        .from('message')
-        .insert({
-          board_id: likeRequest.board_id,
-          user_id: user.id,
-          is_system: true, // システムメッセージ
-          content: `${creatorName}さんが「${likeRequest.board.title}」への参加を承認しました`,
-        })
-        .select()
-        .single();
-
-      if (notificationError) {
-        console.error('[PostBoard] 通知の送信に失敗しました:', notificationError);
-        console.error('[PostBoard] エラー詳細:', {
-          code: notificationError.code,
-          message: notificationError.message,
-          details: notificationError.details,
-          hint: notificationError.hint
-        });
-        // 通知エラーは非ブロッキング（承認は成功している）
-      } else {
-        console.log('[PostBoard] 承認通知の送信に成功:', notificationData);
-      }
+      // 注意: ハート認証メッセージは既に上記で送信済みのため、重複する承認通知は送信しない
 
       // リストから削除
       setLikeRequests(prev => prev.filter(req => req.id !== likeRequest.id));
