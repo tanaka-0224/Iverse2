@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { DEFAULT_JOIN_MESSAGE_TEMPLATE, HEART_APPROVED_MESSAGE_TEMPLATE } from '../../constants/messages';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
-import { Users, Calendar, User, MessageCircle, Heart, Check, X, Bell } from 'lucide-react';
+import { Users, Calendar, User, MessageCircle, Check, X, Bell } from 'lucide-react';
 
 interface Board {
   id: string;
@@ -296,6 +296,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
           .insert({
             board_id: likeRequest.board_id,
             user_id: user.id, // ホスト（承認した人）が送信
+            is_system: true, // システムメッセージ
             content: messageContent,
           });
 
@@ -390,6 +391,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
             .insert({
               board_id: likeRequest.board_id,
               user_id: user.id, // ホスト（承認した人）が送信
+              is_system: true, // システムメッセージ
               content: messageContent,
             });
 
@@ -419,7 +421,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         // エラーでも続行
       }
 
-      // いいねした人に承認通知を送信
+      // いいねした人に承認通知を送信（システムメッセージとして）
       console.log('[PostBoard] 承認通知を送信:', {
         user_id: likeRequest.user_id,
         from_user_id: user.id,
@@ -428,13 +430,12 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
       });
 
       const { data: notificationData, error: notificationError } = await supabase
-        .from('notification')
+        .from('message')
         .insert({
-          user_id: likeRequest.user_id,
-          from_user_id: user.id,
           board_id: likeRequest.board_id,
-          type: 'accepted',
-          message: `${creatorName}さんが「${likeRequest.board.title}」への参加を承認しました`,
+          user_id: user.id,
+          is_system: true, // システムメッセージ
+          content: `${creatorName}さんが「${likeRequest.board.title}」への参加を承認しました`,
         })
         .select()
         .single();
@@ -498,7 +499,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         // エラーでも続行
       }
 
-      // いいねした人に非承認通知を送信
+      // いいねした人に非承認通知を送信（システムメッセージとして）
       console.log('[PostBoard] 非承認通知を送信:', {
         user_id: likeRequest.user_id,
         from_user_id: user.id,
@@ -507,13 +508,12 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
       });
 
       const { data: notificationData, error: notificationError } = await supabase
-        .from('notification')
+        .from('message')
         .insert({
-          user_id: likeRequest.user_id,
-          from_user_id: user.id,
           board_id: likeRequest.board_id,
-          type: 'rejected',
-          message: `${creatorName}さんが「${likeRequest.board.title}」への参加を非承認しました`,
+          user_id: user.id,
+          is_system: true, // システムメッセージ
+          content: `${creatorName}さんが「${likeRequest.board.title}」への参加を非承認しました`,
         })
         .select()
         .single();

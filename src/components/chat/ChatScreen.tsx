@@ -25,6 +25,7 @@ interface Message {
     photo: string | null;
   };
   user_id: string;
+  is_system: boolean;
 }
 
 interface ChatScreenProps {
@@ -156,6 +157,7 @@ export default function ChatScreen({}: ChatScreenProps) {
           content,
           created_at,
           user_id,
+          is_system,
           users!inner (
             name,
             photo
@@ -170,9 +172,15 @@ export default function ChatScreen({}: ChatScreenProps) {
       }
 
       console.log('[Chat] 取得したメッセージ数:', data?.length || 0);
+      console.log('[Chat] 取得したメッセージデータ:', data);
       
       // 新しいボードのメッセージを直接設定（マージしない）
-      setMessages(data || []);
+      // is_systemがnullやundefinedの場合はfalseに設定
+      const messagesWithDefaults = (data || []).map(msg => ({
+        ...msg,
+        is_system: msg.is_system ?? false
+      }));
+      setMessages(messagesWithDefaults);
 
     } catch (error) {
       console.error('[Chat] Error fetching messages:', error);
@@ -239,6 +247,7 @@ export default function ChatScreen({}: ChatScreenProps) {
         .insert({
           board_id: selectedBoard,
           user_id: user.id,
+          is_system: false, // ユーザーメッセージ
           content: messageContent,
         })
         .select(`
@@ -246,6 +255,7 @@ export default function ChatScreen({}: ChatScreenProps) {
           content,
           created_at,
           user_id,
+          is_system,
           users!inner (
             name,
             photo
@@ -295,9 +305,19 @@ export default function ChatScreen({}: ChatScreenProps) {
     });
   };
 
-  // ハート認証の通知メッセージかどうかを判定
-  const isHeartApprovedMessage = (content: string) => {
-    return content.includes('ハートが認証され、グループチャットに追加されました');
+  // システムメッセージかどうかを判定
+  const isSystemMessage = (message: Message) => {
+    // is_systemがtrueの場合のみシステムメッセージと判定
+    // nullやundefinedの場合はfalseとして扱う
+    const result = Boolean(message.is_system === true);
+    console.log('[Chat] システムメッセージ判定:', {
+      messageId: message.id,
+      content: message.content?.substring(0, 30) || '',
+      is_system: message.is_system,
+      isSystem: result,
+      type: typeof message.is_system
+    });
+    return result;
   };
 
   if (loading) {
@@ -379,14 +399,12 @@ export default function ChatScreen({}: ChatScreenProps) {
           ) : (
             <>
               {messages.map((message) => {
-                const isSystemMessage = isHeartApprovedMessage(message.content);
-                
-                // システムメッセージ（ハート認証通知）の場合はグレー表示
-                if (isSystemMessage) {
+                // システムメッセージの場合はグレー表示
+                if (isSystemMessage(message)) {
                   return (
                     <div key={message.id} className="flex justify-center my-2">
-                      <div className="bg-gray-200 text-gray-600 rounded-lg px-4 py-2 max-w-md">
-                        <p className="text-sm text-center">{message.content}</p>
+                      <div className="bg-gray-300 text-gray-700 rounded-lg px-4 py-2 max-w-md border border-gray-400">
+                        <p className="text-sm text-center font-medium">{message.content}</p>
                       </div>
                     </div>
                   );
