@@ -1,51 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/database.types';
 
-type UserRow = Database['public']['Tables']['users']['Row'];
-type UserInsert = Database['public']['Tables']['users']['Insert'];
+type Profile = Database['public']['Tables']['profiles']['Row'];
 
-const buildInsertPayload = (
-  userId: string,
-  email?: string | null,
-  overrides?: Partial<UserRow>,
-): UserInsert => {
-  const fallbackEmail = email || `${userId}@local.dev`;
-  const timestamp = new Date().toISOString();
-  return {
-    id: userId,
-    email: overrides?.email ?? fallbackEmail,
-    name:
-      overrides?.name ??
-      fallbackEmail.split('@')[0] ??
-      'ユーザー',
-    password: '',
-    photo: overrides?.photo ?? null,
-    purpose: overrides?.purpose ?? null,
-    skill: overrides?.skill ?? null,
-    created_at: overrides?.created_at ?? timestamp,
-    updated_at: overrides?.updated_at ?? timestamp,
-  };
-};
-
-const createServerProfile = async (
-  userId: string,
-  email?: string | null,
-  overrides?: Partial<UserRow>,
-) => {
-  const payload = buildInsertPayload(userId, email, overrides);
-  const { data, error } = await supabase
-    .from('users')
-    .insert(payload)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-};
-
-export function useProfile(userId: string | undefined, userEmail?: string | null) {
-  const [profile, setProfile] = useState<UserRow | null>(null);
+export function useProfile(userId: string | undefined) {
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -55,10 +15,29 @@ export function useProfile(userId: string | undefined, userEmail?: string | null
     }
 
     fetchProfile();
-  }, [userId, userEmail]);
+  }, [userId]);
 
   const fetchProfile = async () => {
     if (!userId) return;
+
+    if (isDemoUserId(userId)) {
+      const stored =
+        readDemoProfile(userId) ??
+        createDemoProfile(userId, userEmail, userDisplayName);
+
+      const normalized =
+        stored.display_name || userDisplayName
+          ? {
+              ...stored,
+              display_name: stored.display_name || userDisplayName || 'Demo User',
+            }
+          : stored;
+
+      writeDemoProfile(userId, normalized);
+      setProfile(normalized);
+      setLoading(false);
+      return normalized;
+    }
 
     try {
       const { data, error } = await supabase
@@ -68,15 +47,7 @@ export function useProfile(userId: string | undefined, userEmail?: string | null
         .maybeSingle();
 
       if (error) throw error;
-
-      if (!data) {
-        const created = await createServerProfile(userId, userEmail);
-        setProfile(created);
-        return created;
-      }
-
       setProfile(data);
-      return data;
     } catch (error) {
       console.error('Error fetching profile:', error);
       throw error;
@@ -100,23 +71,35 @@ export function useProfile(userId: string | undefined, userEmail?: string | null
 
     safeUpdates.updated_at = new Date().toISOString();
 
+    if (isDemoUserId(userId)) {
+      const current =
+        profile ??
+        readDemoProfile(userId) ??
+        createDemoProfile(userId, userEmail, userDisplayName);
+      const updatedProfile: Profile = {
+        ...current,
+        ...updates,
+        updated_at: new Date().toISOString(),
+      };
+      setProfile(updatedProfile);
+      writeDemoProfile(userId, updatedProfile);
+      return updatedProfile;
+    }
+
     try {
+      const payload = buildUserUpdatePayload(updates, profile, userEmail);
+      if (Object.keys(payload).length === 0) {
+        return profile;
+      }
+
       const { data, error } = await supabase
-        .from('users')
-        .update(safeUpdates)
+        .from('profiles')
+        .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', userId)
         .select()
         .single();
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          const created = await createServerProfile(userId, userEmail, safeUpdates);
-          setProfile(created);
-          return created;
-        }
-        throw error;
-      }
-
+      if (error) throw error;
       setProfile(data);
       return data;
     } catch (error) {

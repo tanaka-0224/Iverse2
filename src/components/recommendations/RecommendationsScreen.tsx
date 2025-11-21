@@ -1,22 +1,22 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import RecommendationCard from './RecommendationCard';
 import LoadingSpinner from '../ui/LoadingSpinner';
-import { FiRefreshCw, FiStar } from 'react-icons/fi';
+import { RefreshCw, Sparkles } from 'lucide-react';
 import Button from '../ui/Button';
 
 interface Board {
   id: string;
   title: string;
-  purpose: string | null;
-  limit_count: number | null;
-  created_at: string | null;
-  updated_at: string | null;
-
-  users: {
-    name: string;
-    photo: string | null;
+  category: string;
+  description: string;
+  max_participants: number | null;
+  current_participants: number;
+  created_at: string;
+  profiles: {
+    display_name: string | null;
+    avatar_url: string | null;
   };
 }
 
@@ -24,103 +24,108 @@ interface RecommendationsScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-export default function RecommendationsScreen({ onNavigate }: RecommendationsScreenProps) {
+export default function RecommendationsScreen({
+  onNavigate,
+}: RecommendationsScreenProps) {
   const { user } = useAuth();
-  const [board, setBoard] = useState<Board[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [likeLoading, setLikeLoading] = useState<string | null>(null);
-  const [likedBoard, setLikedBoard] = useState<Set<string>>(new Set());
-
-    const fetchRecommendations = async () => {
-
-      if (!user?.id) return;
-      try {
-        const { data, error } = await supabase
-          .from('board')
-          .select(`
-            id,
-            title,
-            purpose,
-            limit_count,
-            created_at,
-            updated_at,
-            users (
-            name,
-            photo
-            )
-          `)
-          .neq('user_id', user.id)
-          .order('created_at', { ascending: false });
-  
-        if (error) throw error;
-        setBoard(data);
-      } catch (error) {
-        console.error('Error fetching recommendations:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchRecommendations();
     fetchUserLikes();
   }, [user]);
 
+  const fetchRecommendations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('posts')
+        .select(`
+          id,
+          title,
+          category,
+          description,
+          max_participants,
+          current_participants,
+          created_at,
+          profiles (
+            display_name,
+            avatar_url
+          )
+        `)
+        .eq('status', 'published')
+        .neq('user_id', user?.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setPosts(data || []);
+    } catch (error) {
+      console.error('Error fetching recommendations:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchUserLikes = async () => {
     if (!user) return;
 
     try {
       const { data, error } = await supabase
-        .from('like')
-        .select('board_id')
+        .from('likes')
+        .select('post_id')
         .eq('user_id', user.id);
 
       if (error) throw error;
-      setLikedBoard(new Set(data?.map(like => like.board_id) || []));
-    } catch (error) {
-      console.error('Error fetching user likes:', error);
-    }
-  };
-
-  const handleLike = async (boardId: string) => {
-    if (!user) return;
-    
-    setLikeLoading(boardId);
-    const hasLiked = likedBoard.has(boardId);
-
-    try {
-      if (hasLiked) {
-        const { error } = await supabase
-          .from('like')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('board_id', boardId);
-
-        if (error) throw error;
-        setLikedBoard(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(boardId);
-          return newSet;
-        });
-      } else {
-        const { error } = await supabase
-          .from('like')
-          .insert({ user_id: user.id, board_id: boardId });
-
-        if (error) throw error;
-        setLikedBoard(prev => new Set([...prev, boardId]));
-
-        // Check for mutual like and create match
-        await checkForMatch(boardId);
-      }
+      setLikedPosts(new Set(data?.map(like => like.post_id) || []));
     } catch (error) {
       console.error('Error handling like:', error);
+      alert('いいねの追加に失敗しました: ' + (error as Error).message);
     } finally {
       setLikeLoading(null);
     }
   };
 
-  const checkForMatch = async (boardId: string) => {
+  const handleLike = async (postId: string) => {
+    if (!user) return;
+    
+    setLikeLoading(postId);
+    const hasLiked = likedPosts.has(postId);
+
+    try {
+      if (hasLiked) {
+        const { error } = await supabase
+          .from('likes')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('post_id', postId);
+
+        if (error) throw error;
+        setLikedPosts(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(postId);
+          return newSet;
+        });
+      } else {
+        const { error } = await supabase
+          .from('likes')
+          .insert({ user_id: user.id, post_id: postId });
+
+        if (error) throw error;
+        setLikedPosts(prev => new Set([...prev, postId]));
+
+        // Check for mutual like and create match
+        await checkForMatch(postId);
+      }
+    } catch (error) {
+      console.error('Error handling unlike:', error);
+    } finally {
+      setLikeLoading(null);
+    }
+  };
+
+  const checkForMatch = async (postId: string) => {
     if (!user) return;
 
     try {
@@ -166,22 +171,15 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="text-center space-y-2">
+    <div className="flex flex-col h-full max-h-[calc(100vh-8rem)] pb-6 overflow-hidden">
+      {/* タイトル */}
+      <div className="text-center space-y-2 pb-4 flex-shrink-0">
         <div className="flex items-center justify-center space-x-2">
           <FiStar className="h-8 w-8 text-yellow-500" />
           <h1 className="text-2xl font-bold text-gray-900">おすすめ</h1>
         </div>
-        <p className="text-gray-600">あなたにぴったりのプロジェクトを見つけよう</p>
+        <p className="text-gray-600 text-sm">あなたにぴったりのプロジェクトを見つけよう</p>
       </div>
 
       <div className="flex justify-center">
@@ -191,30 +189,30 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
           size="sm"
           className="flex items-center space-x-2"
         >
-          <FiRefreshCw className="h-4 w-4" />
+          <RefreshCw className="h-4 w-4" />
           <span>更新</span>
         </Button>
       </div>
 
       <div className="space-y-4">
-        {board.length === 0 ? (
+        {posts.length === 0 ? (
           <div className="text-center py-12 space-y-4">
             <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
-              <FiStar className="h-12 w-12 text-gray-400" />
+              <Sparkles className="h-12 w-12 text-gray-400" />
             </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-medium text-gray-900">新しい募集はありません</h3>
-              <p className="text-gray-500">後でもう一度チェックしてみてください</p>
+            <div className="space-y-1">
+              <h3 className="text-base font-medium text-gray-900">新しい募集はありません</h3>
+              <p className="text-gray-500 text-xs">後でもう一度チェックしてみてください</p>
             </div>
           </div>
         ) : (
-          board.map((board) => (
+          posts.map((post) => (
             <RecommendationCard
-              key={board.id}
-              board={board}
+              key={post.id}
+              post={post}
               onLike={handleLike}
-              hasLiked={likedBoard.has(board.id)}
-              loading={likeLoading === board.id}
+              hasLiked={likedPosts.has(post.id)}
+              loading={likeLoading === post.id}
             />
           ))
         )}

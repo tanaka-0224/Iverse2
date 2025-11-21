@@ -4,11 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
-import { FiPlus } from 'react-icons/fi';
-import {
-  addDemoBoardRecord,
-  DemoBoardRecord,
-} from '../../lib/demoBoards';
+import { Plus, Save, Eye } from 'lucide-react';
 
 interface CreatePostScreenProps {
   onNavigate: (screen: string) => void;
@@ -40,10 +36,15 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const blockingMessage =
-    !shouldUseDemoBoards && !isSupabaseConfigured
-      ? 'データベース接続が未設定です。環境変数 VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY または VITE_SUPABASE_DISABLED の値を確認してください。'
-      : null;
+  const categories = [
+    'ウェブ開発',
+    'モバイルアプリ',
+    'デザイン',
+    'マーケティング',
+    'コンテンツ制作',
+    'ビジネス企画',
+    'その他'
+  ];
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
@@ -68,69 +69,28 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
     setLoading(true);
     setError('');
 
-    if (shouldUseDemoBoards) {
-      try {
-        const now = new Date().toISOString();
-        const ownerName =
-          user.user_metadata?.name ||
-          user.email?.split('@')[0] ||
-          'デモユーザー';
-
-        const record: DemoBoardRecord = {
-          id: generateBoardId(),
-          user_id: user.id,
-          title: formData.title,
-          purpose: formData.purpose || null,
-          limit_count: limitValue,
-          created_at: now,
-          updated_at: now,
-          owner_name: ownerName,
-        };
-
-        addDemoBoardRecord(record);
-        setFormData({ title: '', purpose: '', limit_count: '' });
-        onNavigate('post');
-      } catch (err) {
-        console.error('[DemoBoards] Failed to create board', err);
-        setError('ローカルデータの保存に失敗しました。ブラウザ設定をご確認ください。');
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    const supportsAbort = typeof AbortController !== 'undefined';
-    const controller = supportsAbort ? new AbortController() : null;
-    const abortTimer =
-      supportsAbort && typeof window !== 'undefined'
-        ? window.setTimeout(() => controller?.abort(), 12000)
-        : null;
-
     try {
-      let query = supabase
-        .from('board')
+      const { error } = await supabase
+        .from('posts')
         .insert({
           user_id: user.id,
           title: formData.title,
-          purpose: formData.purpose,
-          limit_count: limitValue,
+          category: formData.category,
+          description: formData.description,
+          max_participants: formData.max_participants ? parseInt(formData.max_participants) : null,
+          status,
+          current_participants: 1,
         });
 
-      if (controller) {
-        query = query.abortSignal(controller.signal);
-      }
-
-      const { error } = await query;
       if (error) throw error;
 
-      setFormData({ title: '', purpose: '', limit_count: '' });
-      onNavigate('post');
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        setError('通信がタイムアウトしました。接続状況を確認して再度お試しください。');
+      if (status === 'published') {
+        onNavigate('board');
       } else {
-        setError(err?.message || 'エラーが発生しました');
+        alert('下書きを保存しました');
       }
+    } catch (err: any) {
+      setError(err.message || 'エラーが発生しました');
     } finally {
       if (abortTimer) {
         clearTimeout(abortTimer);
@@ -164,7 +124,7 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
           label="目的・説明"
           value={formData.purpose}
           onChange={handleInputChange}
-          placeholder="ボードの目的や詳細、参加条件などを記載してください"
+          placeholder="プロジェクトの詳細、求めるスキル、条件などを記載してください"
           rows={6}
           required
         />
@@ -175,7 +135,7 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
           type="number"
           value={formData.limit_count}
           onChange={handleInputChange}
-          placeholder="最大参加人数。デフォルトは 10 名です"
+          placeholder="最大参加人数（任意）"
           min="1"
         />
 
@@ -187,15 +147,26 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
           </div>
         )}
 
-        <Button
-          onClick={handleSubmit}
-          loading={loading}
-          disabled={Boolean(blockingMessage) || loading}
-          className="w-full flex items-center justify-center space-x-2"
-        >
-          <FiPlus className="h-4 w-4" />
-          <span>ボードを作成</span>
-        </Button>
+        <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3">
+          <Button
+            onClick={() => handleSubmit('draft')}
+            variant="outline"
+            loading={loading}
+            className="flex items-center justify-center space-x-2 flex-1"
+          >
+            <Save className="h-4 w-4" />
+            <span>下書き保存</span>
+          </Button>
+          
+          <Button
+            onClick={() => handleSubmit('published')}
+            loading={loading}
+            className="flex items-center justify-center space-x-2 flex-1"
+          >
+            <Eye className="h-4 w-4" />
+            <span>公開する</span>
+          </Button>
+        </div>
       </div>
     </div>
   );

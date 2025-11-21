@@ -10,6 +10,7 @@ export default function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
   const tabs = [
     { id: 'recommendations', icon: Heart, label: 'おすすめ' },
     { id: 'post', icon: Plus, label: '募集' },
+    { id: 'createpost', icon: Plus, label: '募集作成' },
     { id: 'chat', icon: MessageCircle, label: 'トーク' },
     { id: 'account', icon: User, label: 'アカウント' },
   ];

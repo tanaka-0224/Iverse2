@@ -1,0 +1,27 @@
+name: Keep Supabase Awake 💤➡️😎
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # 毎日UTC0時＝日本時間9時に実行
+  workflow_dispatch: # 手動でも実行可能
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          echo "🌐 Sending ping to $SUPABASE_URL ..."
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: $SUPABASE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_KEY" \
+            "$SUPABASE_URL/rest/v1/" )
+          
+          if [ "$STATUS_CODE" = "200" ]; then
+            echo "✅ Supabase responded successfully (HTTP $STATUS_CODE)"
+          else
+            echo "⚠️ Supabase ping failed (HTTP $STATUS_CODE)"
+          fi
