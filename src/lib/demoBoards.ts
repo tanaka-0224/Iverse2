@@ -1,5 +1,7 @@
 const STORAGE_KEY = 'demo-boards';
 
+export type DemoBoardStatus = 'draft' | 'published' | 'closed';
+
 export interface DemoBoardRecord {
   id: string;
   user_id: string;
@@ -9,6 +11,8 @@ export interface DemoBoardRecord {
   created_at: string;
   updated_at: string;
   owner_name: string | null;
+  category?: string | null;
+  status?: DemoBoardStatus;
 }
 
 const canUseStorage = () =>

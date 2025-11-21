@@ -1,147 +1,231 @@
-import React, { useState, useEffect } from 'react';
-import { supabase } from '../../lib/supabase';
+import React, { useEffect, useState } from 'react';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
-import { Users, Calendar, User, MessageCircle, Edit2, X } from 'lucide-react';
-import {
-  DemoBoardRecord,
-  listDemoBoards,
-  updateDemoBoardRecord,
-} from '../../lib/demoBoards';
+import { Users, Calendar, User as UserIcon, MessageCircle, Edit2, X } from 'lucide-react';
+import { DemoBoardRecord, listDemoBoards, updateDemoBoardRecord } from '../../lib/demoBoards';
 
-interface Board {
+type BoardListType = 'public' | 'my_posts' | 'liked_posts';
+
+interface BoardCard {
   id: string;
+  user_id: string;
   title: string;
-  category: string;
-  description: string;
-  max_participants: number | null;
-  current_participants: number;
-  created_at: string;
-  profiles: {
-    display_name: string | null;
-    avatar_url: string | null;
-  };
+  purpose: string | null;
+  limit_count: number | null;
+  created_at: string | null;
+  users: {
+    name: string | null;
+    photo: string | null;
+  } | null;
 }
 
 interface PostBoardScreenProps {
   onNavigate: (screen: string) => void;
 }
 
+const mapDemoBoardToCard = (record: DemoBoardRecord): BoardCard => ({
+  id: record.id,
+  user_id: record.user_id,
+  title: record.title,
+  purpose: record.purpose,
+  limit_count: record.limit_count,
+  created_at: record.created_at,
+  users: {
+    name: record.owner_name,
+    photo: null,
+  },
+});
+
+const formatDate = (value?: string | null) => {
+  if (!value) return '---';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '---';
+  return date.toLocaleDateString('ja-JP', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+};
+
 export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
   const { user } = useAuth();
-  const [posts, setPosts] = useState<Post[]>([]);
+  const userId = user?.id ?? '';
+  const isDemoUser = Boolean(userId?.startsWith('demo-'));
+  const shouldUseDemoBoards = isDemoUser || !isSupabaseConfigured;
+
+  const [activeList, setActiveList] = useState<BoardListType>('public');
+  const [boards, setBoards] = useState<BoardCard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState('');
+
+  const [editingBoard, setEditingBoard] = useState<BoardCard | null>(null);
+  const [editForm, setEditForm] = useState({ title: '', purpose: '', limit_count: '' });
+  const [editError, setEditError] = useState('');
+  const [editLoading, setEditLoading] = useState(false);
 
   useEffect(() => {
-    fetchPosts();
-  }, []);
+    fetchBoards();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList, userId, shouldUseDemoBoards]);
 
-  const fetchPosts = async () => {
+  const fetchBoards = async () => {
+    setLoading(true);
+    setFetchError('');
+
+    if (shouldUseDemoBoards) {
+      const all = listDemoBoards().map(mapDemoBoardToCard);
+      const filtered =
+        activeList === 'my_posts'
+          ? all.filter((board) => board.user_id === userId)
+          : activeList === 'liked_posts'
+            ? []
+            : all;
+      setBoards(filtered);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const { data, error } = await supabase
-        .from('posts')
-        .select(`
+      let query = supabase
+        .from('board')
+        .select(
+          `
           id,
+          user_id,
           title,
-          category,
-          description,
-          max_participants,
-          current_participants,
+          purpose,
+          limit_count,
           created_at,
-          profiles (
-            display_name,
-            avatar_url
+          users (
+            name,
+            photo
           )
-        `)
-        .eq('status', 'published')
+        `,
+        )
         .order('created_at', { ascending: false });
 
+      if (activeList === 'my_posts') {
+        if (!userId) {
+          setBoards([]);
+          setLoading(false);
+          return;
+        }
+        query = query.eq('user_id', userId);
+      } else if (activeList === 'liked_posts') {
+        if (!userId) {
+          setBoards([]);
+          setLoading(false);
+          return;
+        }
+
+        const { data: likedRows, error: likedError } = await supabase
+          .from('like')
+          .select('board_id')
+          .eq('user_id', userId);
+
+        if (likedError) throw likedError;
+
+        const likedIds = likedRows?.map((row) => row.board_id) ?? [];
+        if (likedIds.length === 0) {
+          setBoards([]);
+          setLoading(false);
+          return;
+        }
+        query = query.in('id', likedIds);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
-      setPosts(data || []);
+
+      setBoards((data as BoardCard[]) ?? []);
     } catch (error) {
-      console.error('Error fetching posts:', error);
+      console.error('Error fetching boards:', error);
+      setFetchError('募集の取得に失敗しました。時間をおいて再度お試しください。');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleJoinProject = async (postId: string) => {
-    if (!user) return;
+  const handleJoinBoard = async (boardId: string) => {
+    if (!userId) {
+      alert('参加するにはログインしてください。');
+      return;
+    }
+
+    if (shouldUseDemoBoards) {
+      alert('デモモードでは参加機能は利用できません。');
+      return;
+    }
 
     try {
-      // Check if user is already in a chat room for this post
-      const { data: existingRoom } = await supabase
-        .from('chat_participants')
-        .select('room_id, chat_rooms!inner(post_id)')
-        .eq('user_id', user.id)
-        .eq('chat_rooms.post_id', postId);
+      const { data: existing } = await supabase
+        .from('board_participants')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('board_id', boardId)
+        .maybeSingle();
 
-      if (existingParticipant) {
-        onNavigate('chat');
+      if (existing) {
+        alert('すでに参加中の募集です。');
         return;
       }
 
-      // Create or join chat room for this post
-      let chatRoomId;
-      const { data: existingChatRoom } = await supabase
-        .from('chat_rooms')
-        .select('id')
-        .eq('post_id', postId)
-        .eq('type', 'project')
-        .single();
+      const { error } = await supabase.from('board_participants').insert({
+        user_id: userId,
+        board_id: boardId,
+        status: 'pending',
+      });
+      if (error) throw error;
 
-      if (existingChatRoom) {
-        chatRoomId = existingChatRoom.id;
-      } else {
-        const { data: newChatRoom, error: chatRoomError } = await supabase
-          .from('chat_rooms')
-          .insert({
-            name: `プロジェクト: ${posts.find(p => p.id === postId)?.title}`,
-            type: 'project',
-            post_id: postId,
-          })
-          .select()
-          .single();
-
-        if (chatRoomError) throw chatRoomError;
-        chatRoomId = newChatRoom.id;
-      }
-
-      // Add user to chat room
-      const { error: participantError } = await supabase
-        .from('board_participants')
-        .insert({
-          room_id: chatRoomId,
-          user_id: user.id,
-        });
-
-      if (participantError) throw participantError;
-
-      onNavigate('chat');
+      alert('参加申請を送信しました。');
     } catch (error) {
-      console.error('Error joining project:', error);
+      console.error('Error joining board:', error);
+      alert('参加処理に失敗しました。時間をおいて再度お試しください。');
     }
   };
 
+  const openEditModal = (board: BoardCard) => {
+    setEditingBoard(board);
+    setEditForm({
+      title: board.title,
+      purpose: board.purpose || '',
+      limit_count: board.limit_count ? String(board.limit_count) : '',
+    });
+    setEditError('');
+  };
+
+  const closeEditModal = () => {
+    setEditingBoard(null);
+    setEditError('');
+    setEditForm({ title: '', purpose: '', limit_count: '' });
+  };
+
+  const handleEditInputChange = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    const { name, value } = event.target;
+    setEditForm((prev) => ({ ...prev, [name]: value }));
+  };
+
   const handleUpdateBoard = async () => {
-    if (!userId || !editingBoard) return;
+    if (!editingBoard) return;
 
     const trimmedTitle = editForm.title.trim();
     if (!trimmedTitle) {
-      setEditError('タイトルを�E力してください');
+      setEditError('タイトルを入力してください。');
       return;
     }
 
     const trimmedPurpose = editForm.purpose.trim();
     let limitValue: number | null = null;
-
-    if (editForm.limit_count.trim() !== '') {
-      const parsed = parseInt(editForm.limit_count, 10);
+    if (editForm.limit_count) {
+      const parsed = Number.parseInt(editForm.limit_count, 10);
       if (Number.isNaN(parsed) || parsed <= 0) {
-        setEditError('参加人数は1以上�E数字で入力してください');
+        setEditError('募集人数は1以上の数字で入力してください。');
         return;
       }
       limitValue = parsed;
@@ -152,24 +236,20 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
     if (shouldUseDemoBoards) {
       try {
-        const updatedRecord = updateDemoBoardRecord(editingBoard.id, {
+        const updated = updateDemoBoardRecord(editingBoard.id, {
           title: trimmedTitle,
           purpose: trimmedPurpose || null,
           limit_count: limitValue,
-          updated_at: new Date().toISOString(),
         });
-
-        if (!updatedRecord) {
-          throw new Error('ローカルチE�Eタが見つかりませんでした');
+        if (!updated) {
+          throw new Error('ローカルデータを更新できませんでした。');
         }
-
-        const mapped = mapDemoBoardToBoard(updatedRecord);
-        setBoards((prev) =>
-          prev.map((board) => (board.id === mapped.id ? mapped : board)),
-        );
+        const mapped = mapDemoBoardToCard(updated);
+        setBoards((prev) => prev.map((board) => (board.id === mapped.id ? mapped : board)));
         closeEditModal();
-      } catch (err: any) {
-        setEditError(err.message || '募集の更新に失敗しました');
+      } catch (error) {
+        console.error('Error updating demo board:', error);
+        setEditError(error instanceof Error ? error.message : '更新に失敗しました。');
       } finally {
         setEditLoading(false);
       }
@@ -177,16 +257,13 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
     }
 
     try {
-      const updates = {
-        title: trimmedTitle,
-        purpose: trimmedPurpose || null,
-        limit_count: limitValue,
-        updated_at: new Date().toISOString(),
-      };
-
       const { error } = await supabase
         .from('board')
-        .update(updates)
+        .update({
+          title: trimmedTitle,
+          purpose: trimmedPurpose || null,
+          limit_count: limitValue,
+        })
         .eq('id', editingBoard.id)
         .eq('user_id', userId);
 
@@ -194,27 +271,22 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
       setBoards((prev) =>
         prev.map((board) =>
-          board.id === editingBoard.id ? { ...board, ...updates } : board,
+          board.id === editingBoard.id
+            ? { ...board, title: trimmedTitle, purpose: trimmedPurpose || null, limit_count: limitValue }
+            : board,
         ),
       );
-
       closeEditModal();
-    } catch (err: any) {
-      setEditError(err.message || '募集の更新に失敗しました');
+    } catch (error) {
+      console.error('Error updating board:', error);
+      setEditError(
+        error instanceof Error
+          ? error.message
+          : '募集の更新に失敗しました。時間をおいて再度お試しください。',
+      );
     } finally {
       setEditLoading(false);
     }
-  };
-
-  const formatDate = (dateString?: string | null) => {
-    if (!dateString) return '---';
-    const date = new Date(dateString);
-    if (Number.isNaN(date.getTime())) return '---';
-    return date.toLocaleDateString('ja-JP', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
   };
 
   if (loading) {
@@ -225,31 +297,6 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
     );
   }
 
-  // 💡 募集がない場合のロジックを理想に合わせて変更
-  if (boards.length === 0) {
-    if (activeList === 'my_posts') {
-        return (
-            // 募集を作成していない場合の表示と、作成画面への誘導
-            <div className="text-center py-12 space-y-4">
-                <h3 className="text-lg font-medium text-gray-900">募集を作成しましょう</h3>
-                <p className="text-gray-500">あなたのプロジェクトを公開できます</p>
-                <Button onClick={() => onNavigate('createpost')}>新規募集作成</Button>
-            </div>
-        );
-    }
-    if (activeList === 'liked_posts') {
-      return (
-          // いいねした募集がない場合の表示
-          <div className="text-center py-12 space-y-4">
-              <h3 className="text-lg font-medium text-gray-900">いいねした募集がありません</h3>
-              <p className="text-gray-500">おすすめ画面で気になるボードを見つけてみましょう</p>
-              <Button onClick={() => onNavigate('recommendations')}>おすすめを見る</Button>
-          </div>
-      );
-  }
-
-  }
-
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
@@ -257,78 +304,122 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
           <Users className="h-8 w-8 text-purple-500" />
           <h1 className="text-2xl font-bold text-gray-900">募集掲示板</h1>
         </div>
-        <p className="text-gray-600">参加したぁE�Eロジェクトを見つけよぁE</p>
+        <p className="text-gray-600">気になるプロジェクトを見つけて参加しましょう</p>
       </div>
 
-      <div className="space-y-4">
-        {posts.length === 0 ? (
-          <div className="text-center py-12 space-y-4">
-            <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
-              <Users className="h-12 w-12 text-gray-400" />
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-medium text-gray-900">募集がありません</h3>
-              <p className="text-gray-500">新しい募集が投稿されるまでお待ちください</p>
-            </div>
+      <div className="flex flex-wrap gap-3 justify-center">
+        <Button
+          variant={activeList === 'public' ? 'primary' : 'outline'}
+          size="sm"
+          onClick={() => setActiveList('public')}
+        >
+          すべて
+        </Button>
+        <Button
+          variant={activeList === 'my_posts' ? 'primary' : 'outline'}
+          size="sm"
+          onClick={() => setActiveList('my_posts')}
+          disabled={!userId}
+        >
+          自分の募集
+        </Button>
+        <Button
+          variant={activeList === 'liked_posts' ? 'primary' : 'outline'}
+          size="sm"
+          onClick={() => setActiveList('liked_posts')}
+          disabled={!userId || shouldUseDemoBoards}
+        >
+          お気に入り
+        </Button>
+        <Button size="sm" onClick={() => onNavigate('createpost')}>
+          新規募集を作成
+        </Button>
+      </div>
+
+      {fetchError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
+          {fetchError}
+        </div>
+      )}
+
+      {boards.length === 0 ? (
+        <div className="text-center py-12 space-y-4">
+          <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
+            <Users className="h-12 w-12 text-gray-400" />
           </div>
-        ) : (
-          posts.map((post) => (
-            <div
-              key={post.id}
-              className="bg-white rounded-xl shadow-md p-6 space-y-4 border border-gray-100 hover:shadow-lg transition-all duration-300"
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                    {post.profiles.avatar_url ? (
-                      <img 
-                        src={post.profiles.avatar_url} 
-                        alt="Avatar" 
-                        className="w-full h-full rounded-full object-cover"
-                      />
-                    ) : (
-                      <User className="h-6 w-6 text-white" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">
-                      {post.profiles.display_name || 'Anonymous'}
-                    </p>
-                    <div className="flex items-center space-x-2 text-sm text-gray-500">
-                      <Calendar className="h-4 w-4" />
-                      <span>{formatDate(post.created_at)}</span>
+          <div className="space-y-2">
+            <h3 className="text-lg font-medium text-gray-900">募集が見つかりません</h3>
+            <p className="text-gray-500">
+              {activeList === 'my_posts'
+                ? '最初の募集を作成してみましょう。'
+                : activeList === 'liked_posts'
+                  ? 'お気に入りに追加した募集はまだありません。'
+                  : '新しい募集が投稿されるまでお待ちください。'}
+            </p>
+          </div>
+          {activeList === 'my_posts' && (
+            <Button onClick={() => onNavigate('createpost')}>募集を作成</Button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {boards.map((board) => {
+            const canEdit = Boolean(userId && board.user_id === userId);
+            return (
+              <div
+                key={board.id}
+                className="bg-white rounded-xl shadow-md p-6 space-y-4 border border-gray-100 hover:shadow-lg transition-all duration-300"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                      {board.users?.photo ? (
+                        <img src={board.users.photo} alt="Avatar" className="w-full h-full rounded-full object-cover" />
+                      ) : (
+                        <UserIcon className="h-6 w-6 text-white" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">{board.users?.name || 'Anonymous'}</p>
+                      <div className="flex items-center space-x-2 text-sm text-gray-500">
+                        <Calendar className="h-4 w-4" />
+                        <span>{formatDate(board.created_at)}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-                
-                <span className="bg-purple-100 text-purple-800 text-sm px-3 py-1 rounded-full font-medium">
-                  {post.category}
-                </span>
-              </div>
-
-              <div className="space-y-2">
-                <h3 className="text-xl font-bold text-gray-900">{post.title}</h3>
-                <p className="text-gray-600">{post.description}</p>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4 text-sm text-gray-500">
-                  <div className="flex items-center space-x-1">
-                    <Users className="h-4 w-4" />
-                    <span>
-                      参加者 {post.current_participants}
-                      {post.max_participants && `/${post.max_participants}`}名
-                    </span>
-                  </div>
+                  <span className="text-sm text-gray-500">
+                    {board.limit_count ? `上限 ${board.limit_count} 名` : '人数未設定'}
+                  </span>
                 </div>
 
-                <Button
-                  onClick={() => handleJoinProject(post.id)}
-                  className="flex items-center space-x-2"
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  <span>参加する</span>
-                </Button>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-bold text-gray-900">{board.title}</h3>
+                  <p className="text-gray-600 whitespace-pre-line">
+                    {board.purpose || '募集内容が未記入です。'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3 justify-between">
+                  {canEdit && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex items-center space-x-1"
+                      onClick={() => openEditModal(board)}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                      <span>編集</span>
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => handleJoinBoard(board.id)}
+                    className="flex items-center space-x-2"
+                    disabled={userId === board.user_id}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    <span>{userId === board.user_id ? '作成者です' : '参加する'}</span>
+                  </Button>
+                </div>
               </div>
             );
           })}
@@ -352,14 +443,58 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
             >
               <X className="h-5 w-5" />
             </button>
+
             <div className="space-y-2">
-              <h3 className="text-xl font-bold text-gray-900">募集を編雁E</h3>
+              <h3 className="text-xl font-bold text-gray-900">募集を編集</h3>
               <p className="text-sm text-gray-500">
-                冁E��を更新すると参加希望老E��最新の惁E��が伝わりまぁE              </p>
+                タイトルや募集内容を更新して最新の情報を届けましょう。
+              </p>
             </div>
-          ))
-        )}
-      </div>
+
+            <div className="space-y-4">
+              <Input
+                name="title"
+                label="タイトル"
+                value={editForm.title}
+                onChange={handleEditInputChange}
+                required
+              />
+
+              <TextArea
+                name="purpose"
+                label="募集内容"
+                value={editForm.purpose}
+                onChange={handleEditInputChange}
+                rows={5}
+              />
+
+              <Input
+                name="limit_count"
+                label="募集人数 (任意)"
+                type="number"
+                min="1"
+                value={editForm.limit_count}
+                onChange={handleEditInputChange}
+              />
+
+              {editError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+                  {editError}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                <Button variant="outline" onClick={closeEditModal} className="sm:flex-1" disabled={editLoading}>
+                  キャンセル
+                </Button>
+                <Button onClick={handleUpdateBoard} loading={editLoading} className="sm:flex-1">
+                  更新する
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
