@@ -51,6 +51,12 @@ const formatDate = (value?: string | null) => {
   });
 };
 
+const parseLimit = (value: string) => {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
+};
+
 export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
   const { user } = useAuth();
   const userId = user?.id ?? '';
@@ -68,8 +74,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
   const [editLoading, setEditLoading] = useState(false);
 
   useEffect(() => {
-    fetchBoards();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void fetchBoards();
   }, [activeList, userId, shouldUseDemoBoards]);
 
   const fetchBoards = async () => {
@@ -221,14 +226,10 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
     }
 
     const trimmedPurpose = editForm.purpose.trim();
-    let limitValue: number | null = null;
-    if (editForm.limit_count) {
-      const parsed = Number.parseInt(editForm.limit_count, 10);
-      if (Number.isNaN(parsed) || parsed <= 0) {
-        setEditError('募集人数は1以上の数字で入力してください。');
-        return;
-      }
-      limitValue = parsed;
+    const limitValue = parseLimit(editForm.limit_count);
+    if (editForm.limit_count && limitValue === null) {
+      setEditError('募集人数は1以上の数字で入力してください。');
+      return;
     }
 
     setEditLoading(true);
@@ -446,9 +447,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
             <div className="space-y-2">
               <h3 className="text-xl font-bold text-gray-900">募集を編集</h3>
-              <p className="text-sm text-gray-500">
-                タイトルや募集内容を更新して最新の情報を届けましょう。
-              </p>
+              <p className="text-sm text-gray-500">タイトルや募集内容を更新して最新の情報を届けましょう。</p>
             </div>
 
             <div className="space-y-4">

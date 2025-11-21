@@ -23,8 +23,8 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   const [likedBoards, setLikedBoards] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    fetchRecommendations();
-    fetchUserLikes();
+    void fetchRecommendations();
+    void fetchUserLikes();
   }, [userId, shouldUseDemoBoards]);
 
   const fetchRecommendations = async () => {
@@ -74,11 +74,11 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
-
       if (error) throw error;
       setBoards((data as RecommendationBoard[]) || []);
     } catch (err) {
       console.error('Error fetching recommendations:', err);
+      setBoards([]);
     } finally {
       setLoading(false);
     }
@@ -100,6 +100,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
       setLikedBoards(new Set(data?.map((row) => row.board_id) || []));
     } catch (err) {
       console.error('Error fetching user likes:', err);
+      setLikedBoards(new Set());
     } finally {
       setLikeLoading(null);
     }

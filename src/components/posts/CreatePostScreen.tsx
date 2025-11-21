@@ -29,11 +29,7 @@ const parseLimitCount = (value: string) => {
 
 export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) {
   const { user } = useAuth();
-  const [formData, setFormData] = useState({
-    title: '',
-    purpose: '',
-    limit_count: '',
-  });
+  const [formData, setFormData] = useState({ title: '', purpose: '', limit_count: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -44,10 +40,7 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
     event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = event.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const ensureUserRow = async () => {
@@ -55,7 +48,7 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
 
     const { data: existing, error: fetchError } = await supabase
       .from('users')
-      .select('id')
+      .select('id, email')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -71,8 +64,6 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
       user.user_metadata?.name || baseEmail.split('@')[0] || 'ユーザー';
 
     let resolvedEmail = baseEmail;
-
-    // Avoid hitting unique email constraint when the same email is used by another id
     const { data: emailRow, error: emailFetchError } = await supabase
       .from('users')
       .select('id')
@@ -143,10 +134,10 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
       await ensureUserRow();
 
       const { error: insertError } = await supabase.from('board').insert({
+        user_id: user.id,
         title: trimmedTitle,
         purpose: trimmedPurpose || null,
         limit_count: limitValue,
-        user_id: user.id,
       });
 
       if (insertError) throw insertError;
@@ -173,10 +164,7 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
         <p className="text-gray-600">新しいプロジェクトメンバーを募集しましょう</p>
       </div>
 
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white rounded-xl shadow-lg p-6 space-y-6"
-      >
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-lg p-6 space-y-6">
         <Input
           name="title"
           label="タイトル"
@@ -211,11 +199,7 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
           </div>
         )}
 
-        <Button
-          type="submit"
-          loading={loading}
-          className="w-full flex items-center justify-center space-x-2"
-        >
+        <Button type="submit" loading={loading} className="w-full flex items-center justify-center space-x-2">
           <Save className="h-4 w-4" />
           <span>募集を作成する</span>
         </Button>
