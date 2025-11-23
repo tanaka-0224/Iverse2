@@ -1,154 +1,85 @@
 import React, { useState } from 'react';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { Plus } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { sendAutoMessage } from '../../lib/autoMessage';
 import { useAuth } from '../../hooks/useAuth';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
-import { Plus, Save } from 'lucide-react';
-import { addDemoBoardRecord } from '../../lib/demoBoards';
+import { DEFAULT_BOARD_CREATION_MESSAGE } from '../../constants/messages';
 
 interface CreatePostScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-const generateBoardId = () => {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return `demo-board-${Date.now()}`;
-};
-
-const parseLimitCount = (value: string) => {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) {
-    return null;
-  }
-  return parsed;
-};
-
 export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) {
   const { user } = useAuth();
-  const [formData, setFormData] = useState({ title: '', purpose: '', limit_count: '' });
+  const [formData, setFormData] = useState({
+    title: '',
+    purpose: '',
+    limit_count: '',
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
-  const shouldUseDemoBoards = isDemoUser || !isSupabaseConfigured;
-
-  const handleInputChange = (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-  ) => {
-    const { name, value } = event.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
   };
 
-  const ensureUserRow = async () => {
+  const handleSubmit = async () => {
     if (!user) return;
-
-    const { data: existing, error: fetchError } = await supabase
-      .from('users')
-      .select('id, email')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      throw fetchError;
-    }
-
-    if (existing) return;
-
-    const now = new Date().toISOString();
-    const baseEmail = user.email || `${user.id}@placeholder.local`;
-    const defaultName =
-      user.user_metadata?.name || baseEmail.split('@')[0] || 'ユーザー';
-
-    let resolvedEmail = baseEmail;
-    const { data: emailRow, error: emailFetchError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', baseEmail)
-      .maybeSingle();
-
-    if (!emailFetchError && emailRow && emailRow.id !== user.id) {
-      resolvedEmail = `${user.id}+${Date.now()}@placeholder.local`;
-    }
-
-    const { error: upsertError } = await supabase
-      .from('users')
-      .upsert(
-        {
-          id: user.id,
-          email: resolvedEmail,
-          name: defaultName,
-          password: '',
-          photo: null,
-          purpose: null,
-          skill: null,
-          created_at: now,
-          updated_at: now,
-        },
-        { onConflict: 'id' },
-      );
-
-    if (upsertError) throw upsertError;
-  };
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!user) {
-      setError('募集を作成するにはログインしてください。');
-      return;
-    }
-
-    const trimmedTitle = formData.title.trim();
-    if (!trimmedTitle) {
-      setError('タイトルを入力してください。');
-      return;
-    }
-
-    const trimmedPurpose = formData.purpose.trim();
-    const limitValue = parseLimitCount(formData.limit_count);
 
     setLoading(true);
     setError('');
 
-    if (shouldUseDemoBoards) {
-      const now = new Date().toISOString();
-      addDemoBoardRecord({
-        id: generateBoardId(),
-        user_id: user.id,
-        title: trimmedTitle,
-        purpose: trimmedPurpose || null,
-        limit_count: limitValue,
-        created_at: now,
-        updated_at: now,
-        owner_name: user.user_metadata?.name || user.email || 'Demo User',
-      });
-      setLoading(false);
-      onNavigate('board');
-      return;
-    }
-
     try {
-      await ensureUserRow();
+      // ボードを作成
+      const { data: boardData, error: boardError } = await supabase
+        .from('board')
+        .insert({
+          user_id: user.id,
+          title: formData.title,
+          purpose: formData.purpose,
+          limit_count: formData.limit_count ? parseInt(formData.limit_count) : 10,
+        })
+        .select()
+        .single();
 
-      const { error: insertError } = await supabase.from('board').insert({
-        user_id: user.id,
-        title: trimmedTitle,
-        purpose: trimmedPurpose || null,
-        limit_count: limitValue,
-      });
+      if (boardError) throw boardError;
 
-      if (insertError) throw insertError;
+      // ボード作成者を参加者として追加
+      if (boardData) {
+        const { error: participantError } = await supabase
+          .from('board_participants')
+          .insert({
+            user_id: user.id,
+            board_id: boardData.id,
+            status: 'accepted',
+          });
+
+        if (participantError) {
+          console.error('参加者の追加に失敗:', participantError);
+          // エラーでも続行（既に存在する可能性がある）
+        } else {
+          const autoMessageResult = await sendAutoMessage({
+            boardId: boardData.id,
+            userId: user.id,
+            content: DEFAULT_BOARD_CREATION_MESSAGE,
+          });
+
+          if (!autoMessageResult.success) {
+            console.warn('[CreatePost] 自動メッセージ送信に失敗しました', autoMessageResult.error);
+          }
+        }
+      }
+
       onNavigate('board');
-    } catch (err) {
-      console.error('Error creating board:', err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : '募集の作成に失敗しました。時間をおいて再度お試しください。',
-      );
+    } catch (err: any) {
+      setError(err.message || 'エラーが発生しました');
     } finally {
       setLoading(false);
     }
@@ -161,49 +92,54 @@ export default function CreatePostScreen({ onNavigate }: CreatePostScreenProps) 
           <Plus className="h-8 w-8 text-blue-500" />
           <h1 className="text-2xl font-bold text-gray-900">募集を作成</h1>
         </div>
-        <p className="text-gray-600">新しいプロジェクトメンバーを募集しましょう</p>
+        <p className="text-gray-600">新しいプロジェクトメンバーを募集しよう</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-lg p-6 space-y-6">
+      <div className="bg-white rounded-xl shadow-lg p-6 space-y-6">
         <Input
           name="title"
           label="タイトル"
           value={formData.title}
           onChange={handleInputChange}
-          placeholder="例: Webアプリ開発チームのメンバー募集"
+          placeholder="ボードのタイトルを入力"
           required
         />
 
         <TextArea
           name="purpose"
-          label="募集内容"
+          label="目的・説明"
           value={formData.purpose}
           onChange={handleInputChange}
-          placeholder="プロジェクトの概要や募集の目的を記載してください"
-          rows={5}
+          placeholder="ボードの目的、詳細、参加条件などを記載してください"
+          rows={6}
+          required
         />
 
         <Input
           name="limit_count"
-          label="募集人数 (任意)"
+          label="参加者数制限"
           type="number"
-          min="1"
           value={formData.limit_count}
           onChange={handleInputChange}
-          placeholder="上限人数があれば入力してください"
+          placeholder="最大参加人数（デフォルト: 10名）"
+          min="1"
         />
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
-            {error}
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-sm text-red-600">{error}</p>
           </div>
         )}
 
-        <Button type="submit" loading={loading} className="w-full flex items-center justify-center space-x-2">
-          <Save className="h-4 w-4" />
-          <span>募集を作成する</span>
+        <Button
+          onClick={handleSubmit}
+          loading={loading}
+          className="w-full flex items-center justify-center space-x-2"
+        >
+          <Plus className="h-4 w-4" />
+          <span>ボードを作成</span>
         </Button>
-      </form>
+      </div>
     </div>
   );
 }

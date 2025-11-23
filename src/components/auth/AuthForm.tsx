@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
-import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi';
+import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 
 interface AuthFormProps {
   mode: 'login' | 'register';
@@ -76,7 +76,7 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
               placeholder="example@email.com"
               required
             />
-            <FiMail className="absolute left-3 top-8 h-5 w-5 text-gray-400" />
+            <Mail className="absolute left-3 top-8 h-5 w-5 text-gray-400" />
           </div>
 
           <div className="relative">
@@ -89,13 +89,13 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
               placeholder="パスワードを入力"
               required
             />
-            <FiLock className="absolute left-3 top-8 h-5 w-5 text-gray-400" />
+            <Lock className="absolute left-3 top-8 h-5 w-5 text-gray-400" />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-8 text-gray-400 hover:text-gray-600 transition-colors"
             >
-              {showPassword ? <FiEyeOff className="h-5 w-5" /> : <FiEye className="h-5 w-5" />}
+              {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
             </button>
           </div>
 

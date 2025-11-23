@@ -1,293 +1,579 @@
-import React, { useEffect, useState } from 'react';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { useState, useEffect } from 'react';
+import { supabase } from '../../lib/supabase';
+import { sendAutoMessage } from '../../lib/autoMessage';
 import { useAuth } from '../../hooks/useAuth';
+import { DEFAULT_JOIN_MESSAGE_TEMPLATE, HEART_APPROVED_MESSAGE_TEMPLATE } from '../../constants/messages';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
-import Input from '../ui/Input';
-import TextArea from '../ui/TextArea';
-import { Users, Calendar, User as UserIcon, MessageCircle, Edit2, X } from 'lucide-react';
-import { DemoBoardRecord, listDemoBoards, updateDemoBoardRecord } from '../../lib/demoBoards';
+import { Users, Calendar, User, MessageCircle, Check, X, Bell } from 'lucide-react';
 
-type BoardListType = 'public' | 'my_posts' | 'liked_posts';
-
-interface BoardCard {
+interface Board {
   id: string;
-  user_id: string;
   title: string;
   purpose: string | null;
   limit_count: number | null;
   created_at: string | null;
   users: {
-    name: string | null;
+    name: string;
     photo: string | null;
-  } | null;
+  };
+}
+
+interface LikeRequest {
+  id: string;
+  board_id: string;
+  user_id: string;
+  created_at: string;
+  board: {
+    id: string;
+    title: string;
+  };
+  users: {
+    id: string;
+    name: string;
+    photo: string | null;
+    email: string;
+  };
 }
 
 interface PostBoardScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-const mapDemoBoardToCard = (record: DemoBoardRecord): BoardCard => ({
-  id: record.id,
-  user_id: record.user_id,
-  title: record.title,
-  purpose: record.purpose,
-  limit_count: record.limit_count,
-  created_at: record.created_at,
-  users: {
-    name: record.owner_name,
-    photo: null,
-  },
-});
-
-const formatDate = (value?: string | null) => {
-  if (!value) return '---';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '---';
-  return date.toLocaleDateString('ja-JP', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-};
-
-const parseLimit = (value: string) => {
-  if (!value) return null;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
-};
+type BoardListType = 'my_posts' | 'liked_posts' | 'notifications'; // 💡 追加: 通知タブを追加
 
 export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
   const { user } = useAuth();
-  const userId = user?.id ?? '';
-  const isDemoUser = Boolean(userId?.startsWith('demo-'));
-  const shouldUseDemoBoards = isDemoUser || !isSupabaseConfigured;
-
-  const [activeList, setActiveList] = useState<BoardListType>('public');
-  const [boards, setBoards] = useState<BoardCard[]>([]);
+  const [boards, setBoards] = useState<Board[]>([]);
+  const [likeRequests, setLikeRequests] = useState<LikeRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState('');
-
-  const [editingBoard, setEditingBoard] = useState<BoardCard | null>(null);
-  const [editForm, setEditForm] = useState({ title: '', purpose: '', limit_count: '' });
-  const [editError, setEditError] = useState('');
-  const [editLoading, setEditLoading] = useState(false);
+  const [activeList, setActiveList] = useState<BoardListType>('my_posts'); // 💡 追加: 現在の表示モード
+  const [processingRequest, setProcessingRequest] = useState<string | null>(null);
 
   useEffect(() => {
-    void fetchBoards();
-  }, [activeList, userId, shouldUseDemoBoards]);
+    if (activeList === 'notifications') {
+      fetchLikeRequests();
+    } else {
+      fetchBoards(activeList);
+    }
+  }, [user, activeList]); 
 
-  const fetchBoards = async () => {
+  // const fetchBoards = async () => {
+  //   try {
+  //     const { data, error } = await supabase
+  //       .from('board')
+  //       .select(`
+  //         id,
+  //         title,
+  //         purpose,
+  //         limit_count,
+  //         created_at,
+  //         users (
+  //           name,
+  //           photo
+  //         )
+  //       `)
+  //       .order('created_at', { ascending: false });
+
+  //     if (error) throw error;
+  //     setBoards(data || []);
+  //   } catch (error) {
+  //     console.error('Error fetching boards:', error);
+  //   } finally {
+  //     setLoading(false);
+  //   }
+  // };
+
+  const fetchBoards = async (listType: BoardListType) => {
+    if (!user) {
+        setLoading(false);
+        return;
+    }
     setLoading(true);
-    setFetchError('');
+    let query = supabase.from('board').select(`
+        id, title, purpose, limit_count, created_at,
+        users ( name, photo )
+    `);
 
-    if (shouldUseDemoBoards) {
-      const all = listDemoBoards().map(mapDemoBoardToCard);
-      const filtered =
-        activeList === 'my_posts'
-          ? all.filter((board) => board.user_id === userId)
-          : activeList === 'liked_posts'
-            ? []
-            : all;
-      setBoards(filtered);
+    // 💡 クエリの切り替えロジック
+    if (listType === 'my_posts') {
+        // 自分の作成した募集ボードのみを取得
+        query = query.eq('user_id', user.id);
+        
+    } else if (listType === 'liked_posts') {
+        // いいねしたボードのみを取得 (LIKEテーブルを結合)
+        // query = query.in('id', supabase.from('like').select('board_id').eq('user_id', user.id)
+        // );
+        const { data: likedData } = await supabase
+        .from('like')
+        .select('board_id')
+        .eq('user_id', user.id);
+    
+        const likedBoardIds = likedData?.map(item => item.board_id) || [];
+        
+        // 取得したIDの配列を .in() に渡す
+        query = query.in('id', likedBoardIds);
+    }
+
+    try {
+      const { data, error } = await query.order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setBoards(data || []);
+    } catch (error) {
+      console.error(`Error fetching ${listType} boards:`, error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchLikeRequests = async () => {
+    if (!user) {
       setLoading(false);
       return;
     }
 
+    setLoading(true);
     try {
-      let query = supabase
+      // 自分のボードにいいねした人を取得
+      const { data: myBoards } = await supabase
         .from('board')
-        .select(
-          `
-          id,
-          user_id,
-          title,
-          purpose,
-          limit_count,
-          created_at,
-          users (
-            name,
-            photo
-          )
-        `,
-        )
-        .order('created_at', { ascending: false });
+        .select('id')
+        .eq('user_id', user.id);
 
-      if (activeList === 'my_posts') {
-        if (!userId) {
-          setBoards([]);
-          setLoading(false);
-          return;
-        }
-        query = query.eq('user_id', userId);
-      } else if (activeList === 'liked_posts') {
-        if (!userId) {
-          setBoards([]);
-          setLoading(false);
-          return;
-        }
-
-        const { data: likedRows, error: likedError } = await supabase
-          .from('like')
-          .select('board_id')
-          .eq('user_id', userId);
-
-        if (likedError) throw likedError;
-
-        const likedIds = likedRows?.map((row) => row.board_id) ?? [];
-        if (likedIds.length === 0) {
-          setBoards([]);
-          setLoading(false);
-          return;
-        }
-        query = query.in('id', likedIds);
+      if (!myBoards || myBoards.length === 0) {
+        setLikeRequests([]);
+        setLoading(false);
+        return;
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const boardIds = myBoards.map(b => b.id);
 
-      setBoards((data as BoardCard[]) ?? []);
+      // 自分のボードにいいねした人を取得（まだ承認されていない人）
+      const { data: likes, error: likesError } = await supabase
+        .from('like')
+        .select(`
+          id,
+          board_id,
+          user_id,
+          created_at,
+          board!inner (
+            id,
+            title
+          ),
+          users!like_user_id_fkey (
+            id,
+            name,
+            photo,
+            email
+          )
+        `)
+        .in('board_id', boardIds);
+
+      if (likesError) throw likesError;
+
+      // 既に承認されている人を除外
+      const { data: participants } = await supabase
+        .from('board_participants')
+        .select('user_id, board_id')
+        .in('board_id', boardIds)
+        .eq('status', 'accepted');
+
+      const acceptedPairs = new Set(
+        participants?.map(p => `${p.user_id}-${p.board_id}`) || []
+      );
+
+      const filteredLikes = (likes || []).filter(like => {
+        const key = `${like.user_id}-${like.board_id}`;
+        return !acceptedPairs.has(key);
+      }) as LikeRequest[];
+
+      setLikeRequests(filteredLikes);
     } catch (error) {
-      console.error('Error fetching boards:', error);
-      setFetchError('募集の取得に失敗しました。時間をおいて再度お試しください。');
+      console.error('Error fetching like requests:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApprove = async (likeRequest: LikeRequest) => {
+    if (!user) return;
+
+    setProcessingRequest(likeRequest.id);
+    try {
+      console.log('[PostBoard] 承認処理開始:', {
+        likeRequestId: likeRequest.id,
+        boardId: likeRequest.board_id,
+        userId: likeRequest.user_id,
+        currentUserId: user.id
+      });
+
+      // まず、ボード作成者（自分）がboard_participantsに存在するか確認
+      const { data: existingOwner, error: checkOwnerError } = await supabase
+        .from('board_participants')
+        .select('id')
+        .eq('board_id', likeRequest.board_id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (checkOwnerError && checkOwnerError.code !== 'PGRST116') {
+        console.error('[PostBoard] ボード作成者の確認エラー:', checkOwnerError);
+        throw new Error(`ボード作成者の確認に失敗しました: ${checkOwnerError.message}`);
+      }
+
+      // ボード作成者が参加者として登録されていない場合は追加
+      if (!existingOwner) {
+        console.log('[PostBoard] ボード作成者を参加者として追加');
+        const { data: ownerData, error: ownerError } = await supabase
+          .from('board_participants')
+          .insert({
+            user_id: user.id, // ボード作成者
+            board_id: likeRequest.board_id,
+            status: 'accepted',
+          })
+          .select()
+          .single();
+
+        if (ownerError) {
+          console.error('[PostBoard] ボード作成者の追加に失敗:', ownerError);
+          console.error('[PostBoard] エラー詳細:', {
+            code: ownerError.code,
+            message: ownerError.message,
+            details: ownerError.details,
+            hint: ownerError.hint
+          });
+          
+          // 重複エラー（23505）の場合は既に存在するので続行
+          if (ownerError.code !== '23505') {
+            throw new Error(`ボード作成者の追加に失敗しました: ${ownerError.message}`);
+          }
+        } else {
+          console.log('[PostBoard] ボード作成者の追加に成功:', ownerData);
+        }
+      } else {
+        console.log('[PostBoard] ボード作成者は既に参加者として登録済み');
+      }
+
+      // 既に参加者として登録されているか確認
+      const { data: existingParticipant, error: checkParticipantError } = await supabase
+        .from('board_participants')
+        .select('id, status')
+        .eq('board_id', likeRequest.board_id)
+        .eq('user_id', likeRequest.user_id)
+        .maybeSingle();
+
+      if (checkParticipantError && checkParticipantError.code !== 'PGRST116') {
+        console.error('[PostBoard] 参加者の確認エラー:', checkParticipantError);
+        throw new Error(`参加者の確認に失敗しました: ${checkParticipantError.message}`);
+      }
+
+      if (existingParticipant) {
+        console.log('[PostBoard] 既に参加者として登録済み。ステータスを更新');
+        // 既に存在する場合はステータスを更新
+        const { error: updateError } = await supabase
+          .from('board_participants')
+          .update({ status: 'accepted' })
+          .eq('id', existingParticipant.id);
+
+        if (updateError) {
+          console.error('[PostBoard] ステータス更新エラー:', updateError);
+          throw new Error(`ステータスの更新に失敗しました: ${updateError.message}`);
+        }
+
+        // 承認されたユーザーと承認した人（ホスト）の名前を取得してメッセージを送信
+        const { data: approvedUserData } = await supabase
+          .from('users')
+          .select('name')
+          .eq('id', likeRequest.user_id)
+          .single();
+
+        const { data: approverData } = await supabase
+          .from('users')
+          .select('name')
+          .eq('id', user.id)
+          .single();
+
+        const approvedUserName = approvedUserData?.name || 'ユーザー';
+        const approverName = approverData?.name || 'ユーザー';
+        console.log('[PostBoard] メッセージ作成:', {
+          approverName,
+          approvedUserName,
+          template: HEART_APPROVED_MESSAGE_TEMPLATE
+        });
+        const messageContent = HEART_APPROVED_MESSAGE_TEMPLATE
+          .replace('[APPROVER]', approverName)
+          .replace('[USERNAME]', approvedUserName);
+        console.log('[PostBoard] 最終メッセージ:', messageContent);
+
+        // ホスト（承認した人）がメッセージを送信
+        const { error: messageError } = await supabase
+          .from('message')
+          .insert({
+            board_id: likeRequest.board_id,
+            user_id: user.id, // ホスト（承認した人）が送信
+            is_system: true, // システムメッセージ
+            content: messageContent,
+          });
+
+        if (messageError) {
+          console.warn('[PostBoard] ハート認証メッセージ送信に失敗しました', messageError);
+        } else {
+          console.log('[PostBoard] ハート認証メッセージ送信に成功');
+        }
+      } else {
+        // いいねした人をboard_participantsに追加
+        console.log('[PostBoard] いいねした人を参加者として追加');
+        
+        // デバッグ: ボードの作成者を確認
+        const { data: boardCheck } = await supabase
+          .from('board')
+          .select('id, user_id, title')
+          .eq('id', likeRequest.board_id)
+          .single();
+        
+        console.log('[PostBoard] ボード情報確認:', {
+          boardId: likeRequest.board_id,
+          boardUserId: boardCheck?.user_id,
+          currentUserId: user.id,
+          isCreator: boardCheck?.user_id === user.id
+        });
+
+        if (!boardCheck || boardCheck.user_id !== user.id) {
+          throw new Error('このボードの作成者ではありません。承認権限がありません。');
+        }
+
+        const { data: participantData, error: participantError } = await supabase
+          .from('board_participants')
+          .insert({
+            user_id: likeRequest.user_id,
+            board_id: likeRequest.board_id,
+            status: 'accepted',
+          })
+          .select()
+          .single();
+
+        if (participantError) {
+          console.error('[PostBoard] 参加者の追加に失敗:', participantError);
+          console.error('[PostBoard] エラー詳細:', {
+            code: participantError.code,
+            message: participantError.message,
+            details: participantError.details,
+            hint: participantError.hint
+          });
+          
+          // RLSポリシーエラーの場合、より詳細な情報を提供
+          if (participantError.code === '42501') {
+            console.error('[PostBoard] RLSポリシーエラー - デバッグ情報:', {
+              boardId: likeRequest.board_id,
+              userId: likeRequest.user_id,
+              currentUserId: user.id,
+              boardCreatorId: boardCheck?.user_id,
+              isBoardCreator: boardCheck?.user_id === user.id
+            });
+            throw new Error(
+              `RLSポリシーエラーが発生しました。\n\n` +
+              `解決方法:\n` +
+              `1. Supabaseダッシュボード（https://supabase.com/dashboard）にアクセス\n` +
+              `2. 左側メニューから「SQL Editor」をクリック\n` +
+              `3. 「New query」をクリック\n` +
+              `4. 以下のSQLをコピー＆ペースト:\n\n` +
+              `ALTER TABLE board_participants DISABLE ROW LEVEL SECURITY;\n\n` +
+              `5. 「Run」ボタンをクリック\n\n` +
+              `詳細は「簡単_RLS無効化手順.md」ファイルを参照してください。`
+            );
+          }
+          
+          // 重複エラーの場合は既に追加されているので続行
+          if (participantError.code !== '23505') {
+            throw new Error(`参加者の追加に失敗しました: ${participantError.message}`);
+          }
+        } else {
+          console.log('[PostBoard] 参加者の追加に成功:', participantData);
+          
+          // 承認されたユーザーと承認した人（ホスト）の名前を取得してメッセージを送信
+          const { data: approvedUserData } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', likeRequest.user_id)
+            .single();
+
+          const { data: approverData } = await supabase
+            .from('users')
+            .select('name')
+            .eq('id', user.id)
+            .single();
+
+          const approvedUserName = approvedUserData?.name || 'ユーザー';
+          const approverName = approverData?.name || 'ユーザー';
+          const messageContent = HEART_APPROVED_MESSAGE_TEMPLATE
+            .replace('[APPROVER]', approverName)
+            .replace('[USERNAME]', approvedUserName);
+
+          // ホスト（承認した人）がメッセージを送信
+          const { error: messageError } = await supabase
+            .from('message')
+            .insert({
+              board_id: likeRequest.board_id,
+              user_id: user.id, // ホスト（承認した人）が送信
+              is_system: true, // システムメッセージ
+              content: messageContent,
+            });
+
+          if (messageError) {
+            console.warn('[PostBoard] ハート認証メッセージ送信に失敗しました', messageError);
+            // RLSポリシーエラーの可能性があるが、承認処理自体は成功しているので続行
+          } else {
+            console.log('[PostBoard] ハート認証メッセージ送信に成功');
+          }
+        }
+      }
+
+      // 注意: ハート認証メッセージは既に上記で送信済みのため、重複する承認通知は送信しない
+
+      // リストから削除
+      setLikeRequests(prev => prev.filter(req => req.id !== likeRequest.id));
+      
+      console.log('[PostBoard] 承認処理が正常に完了しました');
+    } catch (error: any) {
+      console.error('[PostBoard] 承認処理エラー:', error);
+      const errorMessage = error?.message || error?.toString() || '不明なエラーが発生しました';
+      console.error('[PostBoard] エラーメッセージ:', errorMessage);
+      
+      // より詳細なエラーメッセージを表示
+      alert(`承認に失敗しました。\n\nエラー: ${errorMessage}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
+    } finally {
+      setProcessingRequest(null);
+    }
+  };
+
+  const handleReject = async (likeRequest: LikeRequest) => {
+    if (!user) return;
+
+    setProcessingRequest(likeRequest.id);
+    try {
+      // いいねを削除（または非承認としてマーク）
+      const { error: likeError } = await supabase
+        .from('like')
+        .delete()
+        .eq('id', likeRequest.id);
+
+      if (likeError) throw likeError;
+
+      // ボード作成者の名前を取得
+      let creatorName = 'ユーザー';
+      try {
+        const { data: creatorData } = await supabase
+          .from('users')
+          .select('name, email')
+          .eq('id', user.id)
+          .single();
+        
+        if (creatorData) {
+          creatorName = creatorData.name || creatorData.email?.split('@')[0] || 'ユーザー';
+        }
+      } catch (nameError) {
+        console.error('ユーザー名の取得に失敗:', nameError);
+        // エラーでも続行
+      }
+
+      // いいねした人に非承認通知を送信（システムメッセージとして）
+      console.log('[PostBoard] 非承認通知を送信:', {
+        user_id: likeRequest.user_id,
+        from_user_id: user.id,
+        board_id: likeRequest.board_id,
+        type: 'rejected'
+      });
+
+      const { data: notificationData, error: notificationError } = await supabase
+        .from('message')
+        .insert({
+          board_id: likeRequest.board_id,
+          user_id: user.id,
+          is_system: true, // システムメッセージ
+          content: `${creatorName}さんが「${likeRequest.board.title}」への参加を非承認しました`,
+        })
+        .select()
+        .single();
+
+      if (notificationError) {
+        console.error('[PostBoard] 通知の送信に失敗しました:', notificationError);
+        console.error('[PostBoard] エラー詳細:', {
+          code: notificationError.code,
+          message: notificationError.message,
+          details: notificationError.details,
+          hint: notificationError.hint
+        });
+        // 通知エラーは非ブロッキング
+      } else {
+        console.log('[PostBoard] 非承認通知の送信に成功:', notificationData);
+      }
+
+      // リストから削除
+      setLikeRequests(prev => prev.filter(req => req.id !== likeRequest.id));
+    } catch (error) {
+      console.error('Error rejecting request:', error);
+      alert('非承認に失敗しました。もう一度お試しください。');
+    } finally {
+      setProcessingRequest(null);
     }
   };
 
   const handleJoinBoard = async (boardId: string) => {
-    if (!userId) {
-      alert('参加するにはログインしてください。');
-      return;
-    }
-
-    if (shouldUseDemoBoards) {
-      alert('デモモードでは参加機能は利用できません。');
-      return;
-    }
+    if (!user) return;
 
     try {
-      const { data: existing } = await supabase
+      // Check if user is already a participant
+      const { data: existingParticipant, error: existingParticipantError } = await supabase
         .from('board_participants')
         .select('id')
-        .eq('user_id', userId)
+        .eq('user_id', user.id)
         .eq('board_id', boardId)
         .maybeSingle();
 
-      if (existing) {
-        alert('すでに参加中の募集です。');
+      if (existingParticipantError && existingParticipantError.code !== 'PGRST116') {
+        console.error('[PostBoard] 参加状況の確認に失敗しました:', existingParticipantError);
+      }
+
+      if (existingParticipant) {
+        onNavigate('chat');
         return;
       }
 
-      const { error } = await supabase.from('board_participants').insert({
-        user_id: userId,
-        board_id: boardId,
-        status: 'pending',
-      });
-      if (error) throw error;
+      // Add user as a participant
+      const { error: participantError } = await supabase
+        .from('board_participants')
+        .insert({
+          user_id: user.id,
+          board_id: boardId,
+          status: 'accepted',
+        });
 
-      alert('参加申請を送信しました。');
+      if (participantError) throw participantError;
+
+      const autoMessageResult = await sendAutoMessage({
+        boardId,
+        userId: user.id,
+        messageTemplate: DEFAULT_JOIN_MESSAGE_TEMPLATE,
+      });
+
+      if (!autoMessageResult.success) {
+        console.warn('[PostBoard] 自動メッセージ送信に失敗しました', autoMessageResult.error);
+      }
+
+      onNavigate('chat');
     } catch (error) {
       console.error('Error joining board:', error);
-      alert('参加処理に失敗しました。時間をおいて再度お試しください。');
+      alert('トークへの参加に失敗しました。時間をおいて再度お試しください。');
     }
   };
 
-  const openEditModal = (board: BoardCard) => {
-    setEditingBoard(board);
-    setEditForm({
-      title: board.title,
-      purpose: board.purpose || '',
-      limit_count: board.limit_count ? String(board.limit_count) : '',
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ja-JP', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
     });
-    setEditError('');
-  };
-
-  const closeEditModal = () => {
-    setEditingBoard(null);
-    setEditError('');
-    setEditForm({ title: '', purpose: '', limit_count: '' });
-  };
-
-  const handleEditInputChange = (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-  ) => {
-    const { name, value } = event.target;
-    setEditForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleUpdateBoard = async () => {
-    if (!editingBoard) return;
-
-    const trimmedTitle = editForm.title.trim();
-    if (!trimmedTitle) {
-      setEditError('タイトルを入力してください。');
-      return;
-    }
-
-    const trimmedPurpose = editForm.purpose.trim();
-    const limitValue = parseLimit(editForm.limit_count);
-    if (editForm.limit_count && limitValue === null) {
-      setEditError('募集人数は1以上の数字で入力してください。');
-      return;
-    }
-
-    setEditLoading(true);
-    setEditError('');
-
-    if (shouldUseDemoBoards) {
-      try {
-        const updated = updateDemoBoardRecord(editingBoard.id, {
-          title: trimmedTitle,
-          purpose: trimmedPurpose || null,
-          limit_count: limitValue,
-        });
-        if (!updated) {
-          throw new Error('ローカルデータを更新できませんでした。');
-        }
-        const mapped = mapDemoBoardToCard(updated);
-        setBoards((prev) => prev.map((board) => (board.id === mapped.id ? mapped : board)));
-        closeEditModal();
-      } catch (error) {
-        console.error('Error updating demo board:', error);
-        setEditError(error instanceof Error ? error.message : '更新に失敗しました。');
-      } finally {
-        setEditLoading(false);
-      }
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('board')
-        .update({
-          title: trimmedTitle,
-          purpose: trimmedPurpose || null,
-          limit_count: limitValue,
-        })
-        .eq('id', editingBoard.id)
-        .eq('user_id', userId);
-
-      if (error) throw error;
-
-      setBoards((prev) =>
-        prev.map((board) =>
-          board.id === editingBoard.id
-            ? { ...board, title: trimmedTitle, purpose: trimmedPurpose || null, limit_count: limitValue }
-            : board,
-        ),
-      );
-      closeEditModal();
-    } catch (error) {
-      console.error('Error updating board:', error);
-      setEditError(
-        error instanceof Error
-          ? error.message
-          : '募集の更新に失敗しました。時間をおいて再度お試しください。',
-      );
-    } finally {
-      setEditLoading(false);
-    }
   };
 
   if (loading) {
@@ -298,6 +584,31 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
     );
   }
 
+  // 💡 募集がない場合のロジックを理想に合わせて変更
+  if (boards.length === 0) {
+    if (activeList === 'my_posts') {
+        return (
+            // 募集を作成していない場合の表示と、作成画面への誘導
+            <div className="text-center py-12 space-y-4">
+                <h3 className="text-lg font-medium text-gray-900">募集を作成しましょう</h3>
+                <p className="text-gray-500">あなたのプロジェクトを公開できます</p>
+                <Button onClick={() => onNavigate('createpost')}>新規募集作成</Button>
+            </div>
+        );
+    }
+    if (activeList === 'liked_posts') {
+      return (
+          // いいねした募集がない場合の表示
+          <div className="text-center py-12 space-y-4">
+              <h3 className="text-lg font-medium text-gray-900">いいねした募集がありません</h3>
+              <p className="text-gray-500">おすすめ画面で気になるボードを見つけてみましょう</p>
+              <Button onClick={() => onNavigate('recommendations')}>おすすめを見る</Button>
+          </div>
+      );
+  }
+
+  }
+
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
@@ -305,68 +616,148 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
           <Users className="h-8 w-8 text-purple-500" />
           <h1 className="text-2xl font-bold text-gray-900">募集掲示板</h1>
         </div>
-        <p className="text-gray-600">気になるプロジェクトを見つけて参加しましょう</p>
+        <p className="text-gray-600">参加したいプロジェクトを見つけよう</p>
       </div>
 
-      <div className="flex flex-wrap gap-3 justify-center">
-        <Button
-          variant={activeList === 'public' ? 'primary' : 'outline'}
-          size="sm"
-          onClick={() => setActiveList('public')}
-        >
-          すべて
-        </Button>
-        <Button
-          variant={activeList === 'my_posts' ? 'primary' : 'outline'}
-          size="sm"
+      {/* タブ切り替え */}
+      <div className="flex space-x-2 border-b border-gray-200">
+        <button
           onClick={() => setActiveList('my_posts')}
-          disabled={!userId}
+          className={`flex-1 py-2 text-center font-medium transition-colors ${
+            activeList === 'my_posts'
+              ? 'border-b-2 border-purple-500 text-purple-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
         >
           自分の募集
-        </Button>
-        <Button
-          variant={activeList === 'liked_posts' ? 'primary' : 'outline'}
-          size="sm"
+        </button>
+        <button
           onClick={() => setActiveList('liked_posts')}
-          disabled={!userId || shouldUseDemoBoards}
+          className={`flex-1 py-2 text-center font-medium transition-colors ${
+            activeList === 'liked_posts'
+              ? 'border-b-2 border-purple-500 text-purple-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
         >
-          お気に入り
-        </Button>
-        <Button size="sm" onClick={() => onNavigate('createpost')}>
-          新規募集を作成
-        </Button>
+          いいねした募集
+        </button>
+        <button
+          onClick={() => setActiveList('notifications')}
+          className={`flex-1 py-2 text-center font-medium transition-colors relative ${
+            activeList === 'notifications'
+              ? 'border-b-2 border-purple-500 text-purple-600'
+              : 'text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Bell className="h-4 w-4 inline mr-1" />
+          通知
+          {likeRequests.length > 0 && (
+            <span className="absolute top-1 right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+              {likeRequests.length}
+            </span>
+          )}
+        </button>
       </div>
 
-      {fetchError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
-          {fetchError}
+      {/* 通知タブの表示 */}
+      {activeList === 'notifications' && (
+        <div className="space-y-4">
+          {loading ? (
+            <div className="flex items-center justify-center h-96">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : likeRequests.length === 0 ? (
+            <div className="text-center py-12 space-y-4">
+              <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
+                <Bell className="h-12 w-12 text-gray-400" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium text-gray-900">通知がありません</h3>
+                <p className="text-gray-500">いいねのリクエストが来たらここに表示されます</p>
+              </div>
+            </div>
+          ) : (
+            likeRequests.map((request) => (
+              <div
+                key={request.id}
+                className="bg-white rounded-xl shadow-md p-6 space-y-4 border border-gray-100"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                      {request.users.photo ? (
+                        <img
+                          src={request.users.photo}
+                          alt="Avatar"
+                          className="w-full h-full rounded-full object-cover"
+                        />
+                      ) : (
+                        <User className="h-6 w-6 text-white" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">{request.users.name}</p>
+                      <p className="text-sm text-gray-500">{request.board.title}にいいねしました</p>
+                      <div className="flex items-center space-x-2 text-xs text-gray-400 mt-1">
+                        <Calendar className="h-3 w-3" />
+                        <span>{request.created_at ? formatDate(request.created_at) : '不明'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex space-x-2">
+                  <Button
+                    onClick={() => handleApprove(request)}
+                    loading={processingRequest === request.id}
+                    disabled={processingRequest !== null}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    <Check className="h-4 w-4 mr-1" />
+                    承認
+                  </Button>
+                  <Button
+                    onClick={() => handleReject(request)}
+                    loading={processingRequest === request.id}
+                    disabled={processingRequest !== null}
+                    variant="outline"
+                    className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    非承認
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 
-      {boards.length === 0 ? (
-        <div className="text-center py-12 space-y-4">
-          <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
-            <Users className="h-12 w-12 text-gray-400" />
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-lg font-medium text-gray-900">募集が見つかりません</h3>
-            <p className="text-gray-500">
-              {activeList === 'my_posts'
-                ? '最初の募集を作成してみましょう。'
-                : activeList === 'liked_posts'
-                  ? 'お気に入りに追加した募集はまだありません。'
-                  : '新しい募集が投稿されるまでお待ちください。'}
-            </p>
-          </div>
-          {activeList === 'my_posts' && (
-            <Button onClick={() => onNavigate('createpost')}>募集を作成</Button>
-          )}
-        </div>
-      ) : (
+      {/* 自分の募集・いいねした募集の表示 */}
+      {(activeList === 'my_posts' || activeList === 'liked_posts') && (
         <div className="space-y-4">
-          {boards.map((board) => {
-            const canEdit = Boolean(userId && board.user_id === userId);
-            return (
+          {loading ? (
+            <div className="flex items-center justify-center h-96">
+              <LoadingSpinner size="lg" />
+            </div>
+          ) : boards.length === 0 ? (
+            <div className="text-center py-12 space-y-4">
+              <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
+                <Users className="h-12 w-12 text-gray-400" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium text-gray-900">
+                  {activeList === 'my_posts' ? '募集がありません' : 'いいねした募集がありません'}
+                </h3>
+                <p className="text-gray-500">
+                  {activeList === 'my_posts'
+                    ? '新しい募集を作成してみましょう'
+                    : 'おすすめ画面で気になるボードを見つけてみましょう'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            boards.map((board) => (
               <div
                 key={board.id}
                 className="bg-white rounded-xl shadow-md p-6 space-y-4 border border-gray-100 hover:shadow-lg transition-all duration-300"
@@ -374,124 +765,56 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
                     <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                      {board.users?.photo ? (
-                        <img src={board.users.photo} alt="Avatar" className="w-full h-full rounded-full object-cover" />
+                      {board.users.photo ? (
+                        <img
+                          src={board.users.photo}
+                          alt="Avatar"
+                          className="w-full h-full rounded-full object-cover"
+                        />
                       ) : (
-                        <UserIcon className="h-6 w-6 text-white" />
+                        <User className="h-6 w-6 text-white" />
                       )}
                     </div>
                     <div>
-                      <p className="font-medium text-gray-900">{board.users?.name || 'Anonymous'}</p>
+                      <p className="font-medium text-gray-900">{board.users.name}</p>
                       <div className="flex items-center space-x-2 text-sm text-gray-500">
                         <Calendar className="h-4 w-4" />
-                        <span>{formatDate(board.created_at)}</span>
+                        <span>{board.created_at ? formatDate(board.created_at) : '不明'}</span>
                       </div>
                     </div>
                   </div>
-                  <span className="text-sm text-gray-500">
-                    {board.limit_count ? `上限 ${board.limit_count} 名` : '人数未設定'}
+
+                  <span className="bg-purple-100 text-purple-800 text-sm px-3 py-1 rounded-full font-medium">
+                    {activeList === 'my_posts' ? '自分の募集' : 'いいね済み'}
                   </span>
                 </div>
 
                 <div className="space-y-2">
                   <h3 className="text-xl font-bold text-gray-900">{board.title}</h3>
-                  <p className="text-gray-600 whitespace-pre-line">
-                    {board.purpose || '募集内容が未記入です。'}
-                  </p>
+                  <p className="text-gray-600">{board.purpose}</p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 justify-between">
-                  {canEdit && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4 text-sm text-gray-500">
+                    <div className="flex items-center space-x-1">
+                      <Users className="h-4 w-4" />
+                      <span>参加者数制限: {board.limit_count || 10}名</span>
+                    </div>
+                  </div>
+
+                  {activeList === 'liked_posts' && (
                     <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex items-center space-x-1"
-                      onClick={() => openEditModal(board)}
+                      onClick={() => handleJoinBoard(board.id)}
+                      className="flex items-center space-x-2"
                     >
-                      <Edit2 className="h-4 w-4" />
-                      <span>編集</span>
+                      <MessageCircle className="h-4 w-4" />
+                      <span>トークへ</span>
                     </Button>
                   )}
-                  <Button
-                    onClick={() => handleJoinBoard(board.id)}
-                    className="flex items-center space-x-2"
-                    disabled={userId === board.user_id}
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                    <span>{userId === board.user_id ? '作成者です' : '参加する'}</span>
-                  </Button>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {editingBoard && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6"
-          onClick={closeEditModal}
-        >
-          <div
-            className="relative w-full max-w-lg space-y-5 rounded-2xl bg-white p-6 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              type="button"
-              className="absolute right-4 top-4 text-gray-400 transition hover:text-gray-600"
-              onClick={closeEditModal}
-              disabled={editLoading}
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <div className="space-y-2">
-              <h3 className="text-xl font-bold text-gray-900">募集を編集</h3>
-              <p className="text-sm text-gray-500">タイトルや募集内容を更新して最新の情報を届けましょう。</p>
-            </div>
-
-            <div className="space-y-4">
-              <Input
-                name="title"
-                label="タイトル"
-                value={editForm.title}
-                onChange={handleEditInputChange}
-                required
-              />
-
-              <TextArea
-                name="purpose"
-                label="募集内容"
-                value={editForm.purpose}
-                onChange={handleEditInputChange}
-                rows={5}
-              />
-
-              <Input
-                name="limit_count"
-                label="募集人数 (任意)"
-                type="number"
-                min="1"
-                value={editForm.limit_count}
-                onChange={handleEditInputChange}
-              />
-
-              {editError && (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
-                  {editError}
-                </div>
-              )}
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
-                <Button variant="outline" onClick={closeEditModal} className="sm:flex-1" disabled={editLoading}>
-                  キャンセル
-                </Button>
-                <Button onClick={handleUpdateBoard} loading={editLoading} className="sm:flex-1">
-                  更新する
-                </Button>
-              </div>
-            </div>
-          </div>
+            ))
+          )}
         </div>
       )}
     </div>
