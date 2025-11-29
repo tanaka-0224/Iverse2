@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
-import { MessageCircle, Send, User } from 'lucide-react';
+import { MessageCircle, Send, ArrowLeft, User } from 'lucide-react';
+import {
+  listDemoParticipatingBoards,
+  listDemoMessages,
+  createDemoMessage,
+  DemoMessageRecord
+} from '../../lib/demoBoards';
 
 interface Board {
   id: string;
@@ -32,8 +38,12 @@ interface ChatScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-export default function ChatScreen({}: ChatScreenProps) {
+export default function ChatScreen({ }: ChatScreenProps) {
   const { user } = useAuth();
+  const userId = user?.id ?? '';
+  const isDemoUser = Boolean(userId?.startsWith('demo-'));
+  const shouldUseDemoBoards = isDemoUser || !isSupabaseConfigured;
+
   const [boards, setBoards] = useState<Board[]>([]);
   const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -57,13 +67,6 @@ export default function ChatScreen({}: ChatScreenProps) {
     fetchBoards();
   }, [user]);
 
-  // useEffect(() => {
-  //   if (selectedBoard) {
-  //     fetchMessages(selectedBoard);
-  //     subscribeToMessages(selectedBoard);
-  //   }
-  // }, [selectedBoard]);
-  // 修正後の useEffect
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
 
@@ -72,14 +75,14 @@ export default function ChatScreen({}: ChatScreenProps) {
       setMessages([]);
       // 新しいボードのメッセージを取得
       fetchMessages(selectedBoard);
-      // 💡 購読関数から返されるクリーンアップ関数を変数に保持
-      unsubscribe = subscribeToMessages(selectedBoard);
+
+      if (!shouldUseDemoBoards) {
+        unsubscribe = subscribeToMessages(selectedBoard);
+      }
     } else {
-      // ボードが選択されていない場合はメッセージをクリア
       setMessages([]);
     }
 
-    // 💡 useEffect のクリーンアップ関数として購読解除を実行
     return () => {
       if (unsubscribe) {
         unsubscribe();
@@ -97,6 +100,24 @@ export default function ChatScreen({}: ChatScreenProps) {
 
     try {
       console.log('[Chat] ボード取得開始:', { user_id: user.id });
+
+      if (shouldUseDemoBoards) {
+        const demoBoards = listDemoParticipatingBoards(user.id);
+        const mappedBoards = demoBoards
+          .filter(b => b.purpose === 'DM') // Only show DM boards
+          .map(b => ({
+            id: b.id,
+            title: b.title,
+            purpose: b.purpose,
+            users: {
+              name: b.owner_name,
+              photo: null
+            }
+          }));
+        setBoards(mappedBoards);
+        setLoading(false);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('board_participants')
@@ -121,21 +142,14 @@ export default function ChatScreen({}: ChatScreenProps) {
         throw error;
       }
 
-      console.log('[Chat] 取得したボードデータ:', data);
-
       const boards = data?.map(item => ({
         id: item.board.id,
         title: item.board.title,
         purpose: item.board.purpose,
         users: item.board.users,
-      })) || [];
-
-      console.log('[Chat] 処理後のボード数:', boards.length);
+      })).filter(board => board.purpose === 'DM') || []; // Only show DM boards
 
       setBoards(boards);
-      if (boards.length > 0 && !selectedBoard) {
-        setSelectedBoard(boards[0].id);
-      }
     } catch (error) {
       console.error('[Chat] Error fetching boards:', error);
     } finally {
@@ -146,10 +160,25 @@ export default function ChatScreen({}: ChatScreenProps) {
   const fetchMessages = async (boardId: string) => {
     try {
       console.log('[Chat] メッセージ取得開始:', { board_id: boardId });
-      
-      // メッセージをクリア（念のため）
       setMessages([]);
-      
+
+      if (shouldUseDemoBoards) {
+        const demoMessages = listDemoMessages(boardId);
+        const mappedMessages = demoMessages.map(msg => ({
+          id: msg.id,
+          content: msg.content,
+          created_at: msg.created_at,
+          user_id: msg.user_id,
+          is_system: msg.is_system,
+          users: {
+            name: msg.user_name,
+            photo: null
+          }
+        }));
+        setMessages(mappedMessages);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('message')
         .select(`
@@ -167,15 +196,9 @@ export default function ChatScreen({}: ChatScreenProps) {
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('[Chat] メッセージ取得エラー:', error);
         throw error;
       }
 
-      console.log('[Chat] 取得したメッセージ数:', data?.length || 0);
-      console.log('[Chat] 取得したメッセージデータ:', data);
-      
-      // 新しいボードのメッセージを直接設定（マージしない）
-      // is_systemがnullやundefinedの場合はfalseに設定
       const messagesWithDefaults = (data || []).map(msg => ({
         ...msg,
         is_system: msg.is_system ?? false
@@ -184,7 +207,6 @@ export default function ChatScreen({}: ChatScreenProps) {
 
     } catch (error) {
       console.error('[Chat] Error fetching messages:', error);
-      // エラー時もメッセージをクリア
       setMessages([]);
     }
   };
@@ -219,13 +241,27 @@ export default function ChatScreen({}: ChatScreenProps) {
     setError(null);
     setSendingMessage(true);
     try {
-      console.log('[Chat] メッセージ送信開始:', {
-        user_id: user.id,
-        board_id: selectedBoard,
-        content: newMessage.trim()
-      });
+      if (shouldUseDemoBoards) {
+        const messageContent = newMessage.trim();
+        const newMsg = createDemoMessage(selectedBoard, user.id, messageContent);
 
-      // まず、ユーザーがボードの参加者か確認
+        const insertedMessage: Message = {
+          id: newMsg.id,
+          content: newMsg.content,
+          created_at: newMsg.created_at,
+          user_id: newMsg.user_id,
+          is_system: newMsg.is_system,
+          users: {
+            name: newMsg.user_name,
+            photo: null
+          }
+        };
+
+        setMessages(prev => [...prev, insertedMessage]);
+        setNewMessage('');
+        return;
+      }
+
       const { data: participant, error: participantError } = await supabase
         .from('board_participants')
         .select('id, status')
@@ -235,19 +271,17 @@ export default function ChatScreen({}: ChatScreenProps) {
         .single();
 
       if (participantError || !participant) {
-        console.error('[Chat] 参加者チェックエラー:', participantError);
-        throw new Error('このボードの参加者ではありません。メッセージを送信するには、ボードに参加する必要があります。');
+        throw new Error('このボードの参加者ではありません。');
       }
 
       const messageContent = newMessage.trim();
-      
-      // メッセージを送信し、作成されたメッセージデータを取得
+
       const { data: insertedMessage, error: insertError } = await supabase
         .from('message')
         .insert({
           board_id: selectedBoard,
           user_id: user.id,
-          is_system: false, // ユーザーメッセージ
+          is_system: false,
           content: messageContent,
         })
         .select(`
@@ -264,40 +298,28 @@ export default function ChatScreen({}: ChatScreenProps) {
         .single();
 
       if (insertError) {
-        console.error('[Chat] メッセージ挿入エラー:', insertError);
-        // RLSポリシーエラーの場合、より分かりやすいメッセージを表示
-        if (insertError.code === '42501' || insertError.message.includes('policy')) {
-          throw new Error('メッセージを送信する権限がありません。SupabaseのRLSポリシーが正しく設定されているか確認してください。');
-        }
         throw insertError;
       }
 
-      console.log('[Chat] メッセージ送信成功:', insertedMessage);
-
-      // メッセージを即座にローカルステートに追加
       if (insertedMessage) {
         setMessages(prev => {
-          // 重複チェック（念のため）
           const exists = prev.some(msg => msg.id === insertedMessage.id);
-          if (exists) {
-            return prev;
-          }
+          if (exists) return prev;
           return [...prev, insertedMessage];
         });
       }
 
       setNewMessage('');
-      setError(null);
     } catch (error: any) {
       console.error('[Chat] メッセージ送信エラー:', error);
-      const errorMessage = error?.message || 'メッセージの送信に失敗しました。もう一度お試しください。';
-      setError(errorMessage);
+      setError(error?.message || '送信に失敗しました');
     } finally {
       setSendingMessage(false);
     }
   };
 
-  const formatTime = (dateString: string) => {
+  const formatTime = (dateString: string | null) => {
+    if (!dateString) return '';
     const date = new Date(dateString);
     return date.toLocaleTimeString('ja-JP', {
       hour: '2-digit',
@@ -305,179 +327,203 @@ export default function ChatScreen({}: ChatScreenProps) {
     });
   };
 
-  // システムメッセージかどうかを判定
-  const isSystemMessage = (message: Message) => {
-    // is_systemがtrueの場合のみシステムメッセージと判定
-    // nullやundefinedの場合はfalseとして扱う
-    const result = Boolean(message.is_system === true);
-    console.log('[Chat] システムメッセージ判定:', {
-      messageId: message.id,
-      content: message.content?.substring(0, 30) || '',
-      is_system: message.is_system,
-      isSystem: result,
-      type: typeof message.is_system
-    });
-    return result;
-  };
+  // --- Render ---
 
-  if (loading) {
+  if (selectedBoard) {
+    // Chat View
+    const currentBoard = boards.find(b => b.id === selectedBoard);
+
     return (
-      <div className="flex items-center justify-center h-96">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
-  }
+      <div className="flex flex-col h-[calc(100vh-140px)] bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
+        {/* Chat Header */}
+        <div className="bg-white p-4 border-b border-gray-100 flex items-center space-x-3 shadow-sm z-10">
+          <button
+            onClick={() => setSelectedBoard(null)}
+            className="p-2 -ml-2 rounded-full hover:bg-gray-100 text-gray-600"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
 
-  if (boards.length === 0) {
-    return (
-      <div className="text-center py-12 space-y-4">
-        <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
-          <MessageCircle className="h-12 w-12 text-gray-400" />
-        </div>
-        <div className="space-y-2">
-          <h3 className="text-lg font-medium text-gray-900">トークがありません</h3>
-          <p className="text-gray-500">ボードに参加してトークを開始しましょう</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="text-center space-y-2">
-        <div className="flex items-center justify-center space-x-2">
-          <MessageCircle className="h-8 w-8 text-green-500" />
-          <h1 className="text-2xl font-bold text-gray-900">トーク</h1>
-        </div>
-        <p className="text-gray-600">メンバーとコミュニケーションを取ろう</p>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        {/* Board List */}
-        <div className="border-b border-gray-200">
-          <div className="flex space-x-2 p-4 overflow-x-auto">
-            {boards.length === 0 ? (
-              <div className="w-full text-center py-4 text-gray-500 text-sm">
-                参加しているボードがありません
-              </div>
-            ) : (
-              boards.map((board) => (
-                <button
-                  key={board.id}
-                  onClick={() => {
-                    // ボードを切り替えるときにメッセージを即座にクリア
-                    if (selectedBoard !== board.id) {
-                      setMessages([]);
-                    }
-                    setSelectedBoard(board.id);
-                  }}
-                  className={`
-                    flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200
-                    ${selectedBoard === board.id
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }
-                  `}
-                >
-                  {board.title}
-                </button>
-              ))
-            )}
+          <div className="h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
+            {currentBoard?.title.charAt(0) || '?'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-bold text-gray-900 truncate">
+              {currentBoard?.title || 'チャット'}
+            </h3>
+            <p className="text-xs text-gray-500 flex items-center truncate">
+              <User className="h-3 w-3 mr-1" />
+              {currentBoard?.users.name || 'Unknown'}
+            </p>
           </div>
         </div>
 
-        {/* Messages */}
-        <div 
+        {/* Messages Area */}
+        <div
+          className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50"
           ref={messagesContainerRef}
-          className="h-96 overflow-y-auto p-4 space-y-4"
-          id="messages-container"
         >
           {messages.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 text-sm">
-              メッセージがありません。最初のメッセージを送信しましょう！
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-2 opacity-60">
+              <MessageCircle className="h-12 w-12" />
+              <p>メッセージはまだありません</p>
+              <p className="text-sm">最初のメッセージを送ってみましょう！</p>
             </div>
           ) : (
-            <>
-              {messages.map((message) => {
-                // システムメッセージの場合はグレー表示
-                if (isSystemMessage(message)) {
-                  return (
-                    <div key={message.id} className="flex justify-center my-2">
-                      <div className="bg-gray-300 text-gray-700 rounded-lg px-4 py-2 max-w-md border border-gray-400">
-                        <p className="text-sm text-center font-medium">{message.content}</p>
-                      </div>
-                    </div>
-                  );
-                }
-                
-                // 通常のメッセージ
+            messages.map((msg) => {
+              const isOwnMessage = msg.user_id === userId;
+              const isSystem = msg.is_system;
+
+              if (isSystem) {
                 return (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.user_id === user?.id ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div className={`flex items-start gap-2 max-w-xs lg:max-w-md ${message.user_id === user?.id ? 'flex-row-reverse' : ''}`}>
-                      {/* アバターと名前 */}
-                      <div className="flex flex-col items-center flex-shrink-0">
-                        <div className="w-10 h-10 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center">
-                          {message.users.photo ? (
-                            <img 
-                              src={message.users.photo} 
-                              alt={message.users.name || 'Avatar'} 
-                              className="w-full h-full rounded-full object-cover"
-                            />
-                          ) : (
-                            <User className="h-5 w-5 text-white" />
-                          )}
-                        </div>
-                        <p className="text-xs text-gray-600 mt-1 max-w-[60px] truncate">
-                          {message.users.name || 'ユーザー'}
-                        </p>
+                  <div key={msg.id} className="flex justify-center my-4">
+                    <span className="bg-gray-100 text-gray-500 text-xs py-1 px-3 rounded-full">
+                      {msg.content}
+                    </span>
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={msg.id}
+                  className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div className={`flex max-w-[85%] ${isOwnMessage ? 'flex-row-reverse space-x-reverse' : 'flex-row'} items-end space-x-2`}>
+                    {!isOwnMessage && (
+                      <div className="flex-shrink-0 mb-1">
+                        {msg.users.photo ? (
+                          <img
+                            src={msg.users.photo}
+                            alt={msg.users.name}
+                            className="h-8 w-8 rounded-full object-cover border border-gray-200"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-bold">
+                            {msg.users.name.charAt(0)}
+                          </div>
+                        )}
                       </div>
-                      {/* メッセージボックス */}
-                      <div className={`rounded-lg px-3 py-2 ${message.user_id === user?.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'}`}>
-                        <p className="text-sm">{message.content}</p>
-                        <p className={`text-xs mt-1 ${message.user_id === user?.id ? 'text-blue-200' : 'text-gray-500'}`}>
-                          {message.created_at ? formatTime(message.created_at) : '不明'}
-                        </p>
+                    )}
+
+                    <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}>
+                      <div
+                        className={`px-4 py-2 rounded-2xl shadow-sm text-sm break-words ${isOwnMessage
+                            ? 'bg-blue-600 text-white rounded-br-none'
+                            : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'
+                          }`}
+                      >
+                        {msg.content}
+                      </div>
+                      <div className="flex items-center space-x-1 mt-1">
+                        <span className="text-[10px] text-gray-400">
+                          {formatTime(msg.created_at)}
+                        </span>
                       </div>
                     </div>
                   </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </>
+                </div>
+              );
+            })
           )}
+          <div ref={messagesEndRef} />
         </div>
 
-        {/* Message Input */}
-        <form onSubmit={sendMessage} className="border-t border-gray-200 p-4 space-y-2">
+        {/* Input Area */}
+        <div className="bg-white p-3 border-t border-gray-100">
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-sm text-red-600">{error}</p>
+            <div className="mb-2 text-xs text-red-500 bg-red-50 p-2 rounded border border-red-100">
+              {error}
             </div>
           )}
-          <div className="flex space-x-2">
+          <form onSubmit={sendMessage} className="flex items-center space-x-2">
             <Input
               value={newMessage}
-              onChange={(e) => {
-                setNewMessage(e.target.value);
-                setError(null); // 入力時にエラーをクリア
-              }}
+              onChange={(e) => setNewMessage(e.target.value)}
               placeholder="メッセージを入力..."
               className="flex-1"
               disabled={sendingMessage}
             />
             <Button
               type="submit"
-              loading={sendingMessage}
               disabled={!newMessage.trim() || sendingMessage}
-              className="flex-shrink-0"
+              className="flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white rounded-full p-3 h-10 w-10 flex items-center justify-center shadow-md transition-transform active:scale-95"
             >
-              <Send className="h-4 w-4" />
+              {sendingMessage ? (
+                <LoadingSpinner size="sm" color="white" />
+              ) : (
+                <Send className="h-4 w-4 ml-0.5" />
+              )}
             </Button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // List View
+  return (
+    <div className="flex flex-col h-full bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100 min-h-[500px]">
+      <div className="p-4 border-b border-gray-100 bg-white">
+        <h2 className="text-xl font-bold text-gray-800 flex items-center">
+          <MessageCircle className="mr-2 h-6 w-6 text-blue-500" />
+          トーク
+        </h2>
+        <p className="text-xs text-gray-500 mt-1">マッチングしたユーザーとのチャット</p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex justify-center p-8">
+            <LoadingSpinner size="sm" />
           </div>
-        </form>
+        ) : boards.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-64 text-center p-6 text-gray-500">
+            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mb-4">
+              <MessageCircle className="h-8 w-8 text-gray-300" />
+            </div>
+            <p className="font-medium">トークルームはありません</p>
+            <p className="text-xs mt-2 text-gray-400">
+              おすすめ画面で「いいね」をして<br />マッチングするとチャットが始まります
+            </p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-gray-50">
+            {boards.map((board) => (
+              <li key={board.id}>
+                <button
+                  onClick={() => setSelectedBoard(board.id)}
+                  className="w-full text-left p-4 hover:bg-gray-50 transition-colors duration-200 flex items-center space-x-3 active:bg-gray-100"
+                >
+                  <div className="flex-shrink-0 relative">
+                    {board.users.photo ? (
+                      <img
+                        src={board.users.photo}
+                        alt={board.users.name}
+                        className="h-12 w-12 rounded-full object-cover border border-gray-100"
+                      />
+                    ) : (
+                      <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
+                        {board.users.name.charAt(0)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-baseline mb-1">
+                      <p className="text-sm font-bold text-gray-900 truncate">
+                        {board.title}
+                      </p>
+                    </div>
+                    <p className="text-xs text-gray-500 truncate flex items-center">
+                      <User className="h-3 w-3 mr-1" />
+                      {board.users.name}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

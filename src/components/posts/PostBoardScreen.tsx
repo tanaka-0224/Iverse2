@@ -5,8 +5,8 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
-import { Users, Calendar, User as UserIcon, MessageCircle, Edit2, X } from 'lucide-react';
-import { DemoBoardRecord, listDemoBoards, updateDemoBoardRecord } from '../../lib/demoBoards';
+import { Users, Calendar, User as UserIcon, Edit2, X, Trash2 } from 'lucide-react';
+import { DemoBoardRecord, listDemoBoards, updateDemoBoardRecord, deleteDemoBoardRecord } from '../../lib/demoBoards';
 
 type BoardListType = 'public' | 'my_posts' | 'liked_posts';
 
@@ -63,10 +63,9 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
   const isDemoUser = Boolean(userId?.startsWith('demo-'));
   const shouldUseDemoBoards = isDemoUser || !isSupabaseConfigured;
 
-  const [activeList, setActiveList] = useState<BoardListType>('public');
+  const [activeList, setActiveList] = useState<BoardListType>('my_posts');
   const [boards, setBoards] = useState<BoardCard[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState('');
 
   const [editingBoard, setEditingBoard] = useState<BoardCard | null>(null);
   const [editForm, setEditForm] = useState({ title: '', purpose: '', limit_count: '' });
@@ -79,7 +78,6 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
   const fetchBoards = async () => {
     setLoading(true);
-    setFetchError('');
 
     if (shouldUseDemoBoards) {
       const all = listDemoBoards().map(mapDemoBoardToCard);
@@ -149,47 +147,38 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
       setBoards((data as BoardCard[]) ?? []);
     } catch (error) {
       console.error('Error fetching boards:', error);
-      setFetchError('募集の取得に失敗しました。時間をおいて再度お試しください。');
+      setBoards([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleJoinBoard = async (boardId: string) => {
-    if (!userId) {
-      alert('参加するにはログインしてください。');
-      return;
-    }
+  const handleDeleteBoard = async (boardId: string) => {
+    if (!confirm('本当に削除しますか？')) return;
 
     if (shouldUseDemoBoards) {
-      alert('デモモードでは参加機能は利用できません。');
+      const deleted = deleteDemoBoardRecord(boardId);
+      if (deleted) {
+        setBoards((prev) => prev.filter((b) => b.id !== boardId));
+      } else {
+        alert('削除に失敗しました。');
+      }
       return;
     }
 
     try {
-      const { data: existing } = await supabase
-        .from('board_participants')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('board_id', boardId)
-        .maybeSingle();
+      const { error } = await supabase
+        .from('board')
+        .delete()
+        .eq('id', boardId)
+        .eq('user_id', userId);
 
-      if (existing) {
-        alert('すでに参加中の募集です。');
-        return;
-      }
-
-      const { error } = await supabase.from('board_participants').insert({
-        user_id: userId,
-        board_id: boardId,
-        status: 'pending',
-      });
       if (error) throw error;
 
-      alert('参加申請を送信しました。');
+      setBoards((prev) => prev.filter((b) => b.id !== boardId));
     } catch (error) {
-      console.error('Error joining board:', error);
-      alert('参加処理に失敗しました。時間をおいて再度お試しください。');
+      console.error('Error deleting board:', error);
+      alert('削除に失敗しました。時間をおいて再度お試しください。');
     }
   };
 
@@ -310,13 +299,6 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
       <div className="flex flex-wrap gap-3 justify-center">
         <Button
-          variant={activeList === 'public' ? 'primary' : 'outline'}
-          size="sm"
-          onClick={() => setActiveList('public')}
-        >
-          すべて
-        </Button>
-        <Button
           variant={activeList === 'my_posts' ? 'primary' : 'outline'}
           size="sm"
           onClick={() => setActiveList('my_posts')}
@@ -332,16 +314,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         >
           お気に入り
         </Button>
-        <Button size="sm" onClick={() => onNavigate('createpost')}>
-          新規募集を作成
-        </Button>
       </div>
-
-      {fetchError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-600">
-          {fetchError}
-        </div>
-      )}
 
       {boards.length === 0 ? (
         <div className="text-center py-12 space-y-4">
@@ -402,24 +375,27 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
                 <div className="flex flex-wrap items-center gap-3 justify-between">
                   {canEdit && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex items-center space-x-1"
-                      onClick={() => openEditModal(board)}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                      <span>編集</span>
-                    </Button>
+                    <div className="flex space-x-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center space-x-1"
+                        onClick={() => openEditModal(board)}
+                      >
+                        <Edit2 className="h-4 w-4" />
+                        <span>編集</span>
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center space-x-1 text-red-600 border-red-200 hover:bg-red-50"
+                        onClick={() => handleDeleteBoard(board.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span>削除</span>
+                      </Button>
+                    </div>
                   )}
-                  <Button
-                    onClick={() => handleJoinBoard(board.id)}
-                    className="flex items-center space-x-2"
-                    disabled={userId === board.user_id}
-                  >
-                    <MessageCircle className="h-4 w-4" />
-                    <span>{userId === board.user_id ? '作成者です' : '参加する'}</span>
-                  </Button>
                 </div>
               </div>
             );
@@ -427,6 +403,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         </div>
       )}
 
+      {/* Edit Modal */}
       {editingBoard && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6"

@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import RecommendationCard from './RecommendationCard';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { RefreshCw, Sparkles, Heart } from 'lucide-react';
 import Button from '../ui/Button';
+import {
+  listDemoBoards,
+  toggleDemoLike,
+  getDemoLikes,
+  checkDemoMutualLike,
+  createDemoDmBoard,
+  DemoBoardRecord
+} from '../../lib/demoBoards';
+import { sendAutoMessage } from '../../lib/autoMessage';
 
 interface Board {
   id: string;
@@ -28,6 +37,10 @@ export default function RecommendationsScreen({
   onNavigate,
 }: RecommendationsScreenProps) {
   const { user } = useAuth();
+  const userId = user?.id ?? '';
+  const isDemoUser = Boolean(userId?.startsWith('demo-'));
+  const shouldUseDemoBoards = isDemoUser || !isSupabaseConfigured;
+
   const [recommendedBoards, setRecommendedBoards] = useState<Board[]>([]);
   const [likedBoard, setLikedBoard] = useState<Board | null>(null); // いいねは1つだけ
   const [currentIndex, setCurrentIndex] = useState(0); // 現在表示中のカードのインデックス
@@ -37,7 +50,7 @@ export default function RecommendationsScreen({
 
   const fetchRecommendations = async () => {
     console.log('[Recommendations] fetchRecommendations開始', { userId: user?.id });
-    
+
     if (!user?.id) {
       console.log('[Recommendations] ユーザーが存在しないため、データを取得できません');
       setLoading(false);
@@ -45,8 +58,67 @@ export default function RecommendationsScreen({
       setLikedBoard(null);
       return;
     }
-    
+
     setLoading(true);
+
+    if (shouldUseDemoBoards) {
+      try {
+        const allBoards = listDemoBoards();
+        const likedIds = new Set(getDemoLikes(user.id));
+        setLikedBoardIds(likedIds);
+
+        // Get liked board (only one)
+        if (likedIds.size > 0) {
+          const likedId = Array.from(likedIds)[0];
+          const liked = allBoards.find(b => b.id === likedId);
+          if (liked) {
+            setLikedBoard({
+              id: liked.id,
+              title: liked.title,
+              purpose: liked.purpose,
+              limit_count: liked.limit_count,
+              current_participants: 1, // Mock
+              created_at: liked.created_at,
+              updated_at: liked.updated_at,
+              users: {
+                name: liked.owner_name,
+                photo: null
+              }
+            });
+          } else {
+            setLikedBoard(null);
+          }
+        } else {
+          setLikedBoard(null);
+        }
+
+        // Get recommended boards (exclude own and liked)
+        const recommended = allBoards
+          .filter(b => b.user_id !== user.id && !likedIds.has(b.id))
+          .map(b => ({
+            id: b.id,
+            title: b.title,
+            purpose: b.purpose,
+            limit_count: b.limit_count,
+            current_participants: 1, // Mock
+            created_at: b.created_at,
+            updated_at: b.updated_at,
+            users: {
+              name: b.owner_name,
+              photo: null
+            }
+          }));
+
+        setRecommendedBoards(recommended);
+        setCurrentIndex(0);
+      } catch (error) {
+        console.error('[Recommendations] Demo fetch error:', error);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     try {
       // まずいいね済みの募集IDを取得
       const { data: likesData, error: likesError } = await supabase
@@ -88,7 +160,7 @@ export default function RecommendationsScreen({
             .from('board_participants')
             .select('id')
             .eq('board_id', likedData.id);
-          
+
           setLikedBoard({
             ...likedData,
             current_participants: participantsData?.length || 0,
@@ -133,7 +205,7 @@ export default function RecommendationsScreen({
             .from('board_participants')
             .select('id')
             .eq('board_id', board.id);
-          
+
           return {
             ...board,
             current_participants: participantsData?.length || 0,
@@ -151,9 +223,9 @@ export default function RecommendationsScreen({
         setRecommendedBoards(recommendedBoardsWithParticipants);
         setCurrentIndex(0); // インデックスをリセット
       }
-      
-      console.log('[Recommendations] データ取得成功', { 
-        recommended: recommendedBoardsWithParticipants.length 
+
+      console.log('[Recommendations] データ取得成功', {
+        recommended: recommendedBoardsWithParticipants.length
       });
     } catch (error) {
       console.error('[Recommendations] エラー:', error);
@@ -170,7 +242,7 @@ export default function RecommendationsScreen({
 
   useEffect(() => {
     console.log('[Recommendations] useEffect実行', { userId: user?.id, userExists: !!user });
-    
+
     // userが存在しない場合でも、少し待ってから再試行
     if (!user?.id) {
       console.log('[Recommendations] ユーザー未確認、少し待ってから再試行');
@@ -184,9 +256,9 @@ export default function RecommendationsScreen({
       }, 1000);
       return () => clearTimeout(retryTimer);
     }
-    
+
     let isMounted = true;
-    
+
     // タイムアウトを設定（3秒で強制終了）
     const timeoutId = setTimeout(() => {
       console.warn('[Recommendations] タイムアウト: 強制的にローディングを終了');
@@ -220,7 +292,7 @@ export default function RecommendationsScreen({
 
   const handleLike = async (boardId: string) => {
     if (!user) return;
-    
+
     // 既にいいねしている場合は解除処理
     if (likedBoard && likedBoard.id === boardId) {
       await handleUnlike(boardId);
@@ -240,6 +312,27 @@ export default function RecommendationsScreen({
 
     setLikeLoading(boardId);
     const currentBoard = recommendedBoards[currentIndex];
+
+    if (shouldUseDemoBoards) {
+      try {
+        if (likedBoardIds.has(boardId)) {
+          console.log('既にいいね済みです');
+          return;
+        }
+
+        toggleDemoLike(boardId, user.id);
+        setLikedBoardIds(prev => new Set([...prev, boardId]));
+
+        moveToNext();
+        await fetchRecommendations();
+        await checkForMatch(boardId);
+      } catch (error) {
+        console.error('Demo like error:', error);
+      } finally {
+        setLikeLoading(null);
+      }
+      return;
+    }
 
     try {
       // 既にいいね済みかチェック
@@ -276,30 +369,8 @@ export default function RecommendationsScreen({
         }
         throw error;
       }
-      
-      setLikedBoardIds(prev => new Set([...prev, boardId]));
 
-      // ボード作成者に通知を送信（自分自身には送らない）
-      // 注意: notificationテーブルは存在しないため、必要に応じてmessageテーブルにシステムメッセージとして送信する
-      // 現在はコメントアウト（いいね通知はチャットに表示しない想定）
-      // if (boardData.user_id !== user.id) {
-      //   try {
-      //     const { error: notificationError } = await supabase
-      //       .from('message')
-      //       .insert({
-      //         board_id: boardId,
-      //         user_id: user.id,
-      //         is_system: true,
-      //         content: `${user.email?.split('@')[0] || 'ユーザー'}さんが「${boardData.title}」にいいねしました`,
-      //       });
-      //
-      //     if (notificationError) {
-      //       console.error('通知の送信に失敗しました:', notificationError);
-      //     }
-      //   } catch (notifError) {
-      //     console.error('通知送信エラー:', notifError);
-      //   }
-      // }
+      setLikedBoardIds(prev => new Set([...prev, boardId]));
 
       // 次のカードに進む
       moveToNext();
@@ -319,8 +390,26 @@ export default function RecommendationsScreen({
 
   const handleUnlike = async (boardId: string) => {
     if (!user) return;
-    
+
     setLikeLoading(boardId);
+
+    if (shouldUseDemoBoards) {
+      try {
+        toggleDemoLike(boardId, user.id); // Toggles off if exists
+        setLikedBoardIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(boardId);
+          return newSet;
+        });
+        await fetchRecommendations();
+      } catch (error) {
+        console.error('Demo unlike error:', error);
+      } finally {
+        setLikeLoading(null);
+      }
+      return;
+    }
+
     try {
       // いいね解除
       const { error } = await supabase
@@ -330,7 +419,7 @@ export default function RecommendationsScreen({
         .eq('board_id', boardId);
 
       if (error) throw error;
-      
+
       setLikedBoardIds(prev => {
         const newSet = new Set(prev);
         newSet.delete(boardId);
@@ -367,11 +456,21 @@ export default function RecommendationsScreen({
   const checkForMatch = async (boardId: string) => {
     if (!user) return;
 
+    if (shouldUseDemoBoards) {
+      const isMutual = checkDemoMutualLike(user.id, boardId);
+      if (isMutual) {
+        createDemoDmBoard(user.id, boardId);
+        alert('マッチング成立！トーク画面に移動します。');
+        onNavigate('chat');
+      }
+      return;
+    }
+
     try {
       // Get the board owner
       const { data: board, error: boardError } = await supabase
         .from('board')
-        .select('user_id')
+        .select('user_id, title')
         .eq('id', boardId)
         .single();
 
@@ -390,18 +489,54 @@ export default function RecommendationsScreen({
       if (likesError) throw likesError;
 
       if (mutualLikes && mutualLikes.length > 0) {
-        // Create match
-        // const { error: matchError } = await supabase
-        //   .from('matches')
-        //   .insert({
-        //     user1_id: user.id,
-        //     user2_id: board.user_id,
-        //     board_id: boardId,
-        //   });
+        // Mutual like confirmed!
 
-        // if (matchError) throw matchError;
+        // Check if DM board already exists
+        const { data: myBoards } = await supabase.from('board_participants').select('board_id').eq('user_id', user.id);
+        const { data: theirBoards } = await supabase.from('board_participants').select('board_id').eq('user_id', board.user_id);
 
-        // Show match notification and navigate to chat
+        const myBoardIds = new Set(myBoards?.map(b => b.board_id));
+        const sharedBoardIds = theirBoards?.filter(b => myBoardIds.has(b.board_id)).map(b => b.board_id) || [];
+
+        let dmBoardId = null;
+
+        if (sharedBoardIds.length > 0) {
+          // Check if any shared board is a DM board
+          const { data: dmBoards } = await supabase
+            .from('board')
+            .select('id')
+            .in('id', sharedBoardIds)
+            .eq('purpose', 'DM')
+            .limit(1);
+
+          if (dmBoards && dmBoards.length > 0) {
+            dmBoardId = dmBoards[0].id;
+          }
+        }
+
+        if (!dmBoardId) {
+          // Create new DM board
+          const { data: newBoard, error: createError } = await supabase
+            .from('board')
+            .insert({
+              user_id: user.id, // Creator
+              title: `Chat: ${board.title}`, // Contextual title
+              purpose: 'DM',
+              limit_count: 2
+            })
+            .select()
+            .single();
+
+          if (createError) throw createError;
+          dmBoardId = newBoard.id;
+
+          // Add participants
+          await supabase.from('board_participants').insert([
+            { board_id: dmBoardId, user_id: user.id, status: 'accepted' },
+            { board_id: dmBoardId, user_id: board.user_id, status: 'accepted' }
+          ]);
+        }
+
         alert('マッチング成立！トーク画面に移動します。');
         onNavigate('chat');
       }
@@ -439,7 +574,7 @@ export default function RecommendationsScreen({
             <span>更新</span>
           </Button>
         </div>
-        
+
         <div className="max-h-20 overflow-y-auto">
           {likedBoard ? (
             <div className="bg-pink-50 border border-pink-200 rounded-lg p-2">
