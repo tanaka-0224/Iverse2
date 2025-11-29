@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
 import RecommendationCard from './RecommendationCard';
@@ -14,7 +14,6 @@ interface Board {
   current_participants: number;
   created_at: string | null;
   updated_at: string | null;
-
   users: {
     name: string;
     photo: string | null;
@@ -25,7 +24,9 @@ interface RecommendationsScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-export default function RecommendationsScreen({ onNavigate }: RecommendationsScreenProps) {
+export default function RecommendationsScreen({
+  onNavigate,
+}: RecommendationsScreenProps) {
   const { user } = useAuth();
   const [recommendedBoards, setRecommendedBoards] = useState<Board[]>([]);
   const [likedBoard, setLikedBoard] = useState<Board | null>(null); // いいねは1つだけ
@@ -33,7 +34,6 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
   const [loading, setLoading] = useState(false);
   const [likeLoading, setLikeLoading] = useState<string | null>(null);
   const [likedBoardIds, setLikedBoardIds] = useState<Set<string>>(new Set());
-  const [skippedBoardIds, setSkippedBoardIds] = useState<Set<string>>(new Set());
 
   const fetchRecommendations = async () => {
     console.log('[Recommendations] fetchRecommendations開始', { userId: user?.id });
@@ -248,6 +248,15 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
         return;
       }
 
+      // ボードの作成者を取得
+      const { data: boardData, error: boardError } = await supabase
+        .from('board')
+        .select('user_id, title')
+        .eq('id', boardId)
+        .single();
+
+      if (boardError) throw boardError;
+
       // いいね追加
       const { error } = await supabase
         .from('like')
@@ -269,6 +278,28 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
       }
       
       setLikedBoardIds(prev => new Set([...prev, boardId]));
+
+      // ボード作成者に通知を送信（自分自身には送らない）
+      // 注意: notificationテーブルは存在しないため、必要に応じてmessageテーブルにシステムメッセージとして送信する
+      // 現在はコメントアウト（いいね通知はチャットに表示しない想定）
+      // if (boardData.user_id !== user.id) {
+      //   try {
+      //     const { error: notificationError } = await supabase
+      //       .from('message')
+      //       .insert({
+      //         board_id: boardId,
+      //         user_id: user.id,
+      //         is_system: true,
+      //         content: `${user.email?.split('@')[0] || 'ユーザー'}さんが「${boardData.title}」にいいねしました`,
+      //       });
+      //
+      //     if (notificationError) {
+      //       console.error('通知の送信に失敗しました:', notificationError);
+      //     }
+      //   } catch (notifError) {
+      //     console.error('通知送信エラー:', notifError);
+      //   }
+      // }
 
       // 次のカードに進む
       moveToNext();
@@ -315,7 +346,7 @@ export default function RecommendationsScreen({ onNavigate }: RecommendationsScr
     }
   };
 
-  const handleSkip = (boardId: string) => {
+  const handleSkip = (_boardId: string) => {
     // 興味なし：スキップして次のカードに進む（スキップリストには追加しない - 再表示可能にする）
     moveToNext();
   };
