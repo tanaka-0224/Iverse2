@@ -5,10 +5,10 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
-import { Users, Calendar, User as UserIcon, Edit2, X, Trash2 } from 'lucide-react';
+import { Users, Calendar, User as UserIcon, Edit2, X, Trash2, Bell } from 'lucide-react';
 import { DemoBoardRecord, listDemoBoards, updateDemoBoardRecord, deleteDemoBoardRecord } from '../../lib/demoBoards';
 
-type BoardListType = 'public' | 'my_posts' | 'liked_posts';
+type BoardListType = 'public' | 'my_posts' | 'liked_posts' | 'notifications';
 
 interface BoardCard {
   id: string;
@@ -73,6 +73,10 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
   const [editLoading, setEditLoading] = useState(false);
 
   useEffect(() => {
+    if (activeList === 'notifications') {
+      setLoading(false);
+      return;
+    }
     void fetchBoards();
   }, [activeList, userId, shouldUseDemoBoards]);
 
@@ -85,9 +89,18 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         activeList === 'my_posts'
           ? all.filter((board) => board.user_id === userId)
           : activeList === 'liked_posts'
-            ? []
+            ? [] // Demo likes logic handled separately if needed, for now empty or implement if required
             : all;
-      setBoards(filtered);
+
+      // For liked_posts in demo, we need to filter by likes
+      if (activeList === 'liked_posts') {
+        // This part was simplified in previous code, keeping it simple as per original
+        // If needed, we can implement getDemoLikes here
+        setBoards([]);
+      } else {
+        setBoards(filtered);
+      }
+
       setLoading(false);
       return;
     }
@@ -314,9 +327,32 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         >
           お気に入り
         </Button>
+        <Button
+          variant={activeList === 'notifications' ? 'primary' : 'outline'}
+          size="sm"
+          onClick={() => setActiveList('notifications')}
+          disabled={!userId}
+        >
+          通知
+        </Button>
       </div>
 
-      {boards.length === 0 ? (
+      {activeList === 'notifications' ? (
+        <div className="text-center py-12 space-y-4">
+          <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
+            <div className="relative">
+              <Bell className="h-12 w-12 text-gray-400" />
+              {/* <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-400 rounded-full border-2 border-white"></div> */}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-lg font-medium text-gray-900">通知はありません</h3>
+            <p className="text-gray-500">
+              新しいお知らせが届くとここに表示されます。
+            </p>
+          </div>
+        </div>
+      ) : boards.length === 0 ? (
         <div className="text-center py-12 space-y-4">
           <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
             <Users className="h-12 w-12 text-gray-400" />
