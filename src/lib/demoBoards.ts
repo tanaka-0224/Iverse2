@@ -293,3 +293,85 @@ export const createDemoMessage = (
 
   return newMessage;
 };
+
+// --- Demo Notifications ---
+
+const NOTIFICATIONS_KEY = 'demo-notifications';
+
+export interface DemoNotification {
+  id: string;
+  user_id: string; // Recipient
+  type: 'match' | 'like_received';
+  title: string;
+  message: string;
+  created_at: string;
+  is_read: boolean;
+  data?: {
+    board_id?: string;
+    partner_id?: string;
+  };
+  sender?: {
+    name: string;
+    photo: string | null;
+  };
+}
+
+const readNotifications = (): DemoNotification[] => {
+  if (!canUseStorage()) return [];
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATIONS_KEY);
+    return raw ? (JSON.parse(raw) as DemoNotification[]) : [];
+  } catch (error) {
+    console.warn('[DemoBoards] Failed to parse notifications', error);
+    return [];
+  }
+};
+
+const writeNotifications = (notifications: DemoNotification[]) => {
+  if (!canUseStorage()) return;
+  window.localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(notifications));
+};
+
+export const listDemoNotifications = (userId: string): DemoNotification[] => {
+  const notifications = readNotifications();
+  return notifications
+    .filter((n) => n.user_id === userId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+};
+
+export const createDemoNotification = (
+  userId: string,
+  type: 'match' | 'like_received',
+  title: string,
+  message: string,
+  data?: { board_id?: string; partner_id?: string },
+  sender?: { name: string; photo: string | null }
+): DemoNotification => {
+  const notifications = readNotifications();
+
+  const newNotification: DemoNotification = {
+    id: `demo-notif-${Date.now()}`,
+    user_id: userId,
+    type,
+    title,
+    message,
+    created_at: new Date().toISOString(),
+    is_read: false,
+    data,
+    sender,
+  };
+
+  notifications.unshift(newNotification);
+  writeNotifications(notifications);
+
+  return newNotification;
+};
+
+export const markDemoNotificationAsRead = (notificationId: string) => {
+  const notifications = readNotifications();
+  const index = notifications.findIndex((n) => n.id === notificationId);
+  if (index !== -1) {
+    notifications[index].is_read = true;
+    writeNotifications(notifications);
+  }
+};

@@ -1,14 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { HEART_APPROVED_MESSAGE_TEMPLATE } from '../../constants/messages';
+
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
-import { Users, Calendar, User as UserIcon, Edit2, X, Trash2, Bell } from 'lucide-react';
-import { DemoBoardRecord, listDemoBoards, updateDemoBoardRecord, deleteDemoBoardRecord } from '../../lib/demoBoards';
+import { Users, Calendar, User as UserIcon, Edit2, X, Trash2, Bell, Check } from 'lucide-react';
+import {
+  DemoBoardRecord,
+  listDemoBoards,
+  updateDemoBoardRecord,
+  deleteDemoBoardRecord,
+  listDemoNotifications,
+  markDemoNotificationAsRead,
+  createDemoDmBoard,
+  createDemoNotification
+} from '../../lib/demoBoards';
 
-type BoardListType = 'public' | 'my_posts' | 'liked_posts' | 'notifications';
+type BoardListType = 'my_posts' | 'liked_posts' | 'notifications';
 
 interface BoardCard {
   id: string;
@@ -21,6 +32,34 @@ interface BoardCard {
     name: string | null;
     photo: string | null;
   } | null;
+}
+
+// Unified Notification Interface
+interface LikeRequest {
+  id: string;
+  board_id?: string; // Optional because demo notification data structure is different
+  user_id?: string;
+  created_at: string;
+  is_read?: boolean;
+  type?: string;
+  title?: string;
+  message?: string;
+  sender?: {
+    name: string;
+    photo: string | null;
+  };
+  board?: {
+    id: string;
+    title: string;
+  };
+  users?: {
+    id: string;
+    name: string;
+    photo: string | null;
+    email: string;
+  };
+  // Helper to unify data access
+  data?: any;
 }
 
 interface PostBoardScreenProps {
@@ -65,20 +104,112 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
 
   const [activeList, setActiveList] = useState<BoardListType>('my_posts');
   const [boards, setBoards] = useState<BoardCard[]>([]);
+
+  // We use "notifications" state to hold both Demo and Supabase notifications (mapped to common interface)
+  const [notifications, setNotifications] = useState<LikeRequest[]>([]);
+
   const [loading, setLoading] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const [editingBoard, setEditingBoard] = useState<BoardCard | null>(null);
   const [editForm, setEditForm] = useState({ title: '', purpose: '', limit_count: '' });
   const [editError, setEditError] = useState('');
   const [editLoading, setEditLoading] = useState(false);
+  const [processingRequest, setProcessingRequest] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeList === 'notifications') {
-      setLoading(false);
-      return;
+      fetchNotifications();
+    } else {
+      void fetchBoards();
+      // Also fetch notifications to get unread count
+      if (shouldUseDemoBoards) {
+        const notifs = listDemoNotifications(userId);
+        setUnreadCount(notifs.filter(n => !n.is_read).length);
+      } else if (userId) {
+        // Also fetch notifications for Supabase users to show badge
+        fetchNotifications();
+      }
     }
-    void fetchBoards();
   }, [activeList, userId, shouldUseDemoBoards]);
+
+  const fetchNotifications = async () => {
+    setLoading(true);
+    if (shouldUseDemoBoards) {
+      const notifs = listDemoNotifications(userId);
+      // Map demo notifications to LikeRequest-like structure for display
+      const mapped = notifs.map(n => ({
+        id: n.id,
+        created_at: n.created_at,
+        is_read: n.is_read,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        data: n.data,
+        sender: n.sender,
+        // For display compatibility with Supabase structure
+        users: n.sender ? {
+          id: n.data?.partner_id || 'unknown',
+          name: n.sender.name,
+          photo: n.sender.photo,
+          email: ''
+        } : undefined,
+        board: n.data?.board_id ? { id: n.data.board_id, title: '募集' } : undefined
+      }));
+      setNotifications(mapped);
+      setUnreadCount(notifs.filter(n => !n.is_read).length);
+      setLoading(false);
+    } else {
+      // Supabase fetch
+      try {
+        const { data: myBoards } = await supabase.from('board').select('id').eq('user_id', userId);
+        if (!myBoards || myBoards.length === 0) {
+          setNotifications([]);
+          setLoading(false);
+          return;
+        }
+        const boardIds = myBoards.map(b => b.id);
+
+        const { data: likes, error: likesError } = await supabase
+          .from('like')
+          .select(`
+            id, board_id, user_id, created_at,
+            board!inner ( id, title ),
+            users ( id, name, photo, email )
+            `)
+          .in('board_id', boardIds);
+
+        if (likesError) throw likesError;
+
+        // Filter accepted
+        /*
+        const { data: participants } = await supabase
+          .from('board_participants')
+          .select('user_id, board_id')
+          .in('board_id', boardIds)
+          .eq('status', 'accepted');
+
+        const acceptedPairs = new Set(participants?.map(p => `${p.user_id}-${p.board_id}`) || []);
+        const filteredLikes = (likes || []).filter(like => !acceptedPairs.has(`${like.user_id}-${like.board_id}`));
+        */
+        const filteredLikes = likes || [];
+
+        // Map to common structure
+        const mapped = filteredLikes.map(like => ({
+          ...like,
+          type: 'like_received', // Explicit type
+          is_read: false // Supabase likes don't have read status in this simplified implementations yet
+        })) as LikeRequest[];
+
+        setNotifications(mapped);
+        setUnreadCount(mapped.length);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
 
   const fetchBoards = async () => {
     setLoading(true);
@@ -89,13 +220,13 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         activeList === 'my_posts'
           ? all.filter((board) => board.user_id === userId)
           : activeList === 'liked_posts'
-            ? [] // Demo likes logic handled separately if needed, for now empty or implement if required
+            ? [] // Demo likes logic handled separately if needed for liked_posts tab content
             : all;
 
-      // For liked_posts in demo, we need to filter by likes
       if (activeList === 'liked_posts') {
-        // This part was simplified in previous code, keeping it simple as per original
-        // If needed, we can implement getDemoLikes here
+        // Filter by liked
+        // We need to implement getDemoLikes properly or similar
+        // For now, let's just leave it empty or implement basic
         setBoards([]);
       } else {
         setBoards(filtered);
@@ -110,17 +241,17 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
         .from('board')
         .select(
           `
-          id,
-          user_id,
-          title,
-          purpose,
-          limit_count,
-          created_at,
-          users (
-            name,
-            photo
-          )
-        `,
+            id,
+            user_id,
+            title,
+            purpose,
+            limit_count,
+            created_at,
+            users (
+              name,
+              photo
+            )
+          `,
         )
         .order('created_at', { ascending: false });
 
@@ -163,6 +294,106 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
       setBoards([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApprove = async (request: LikeRequest) => {
+    setProcessingRequest(request.id);
+
+    try {
+      if (shouldUseDemoBoards) {
+        // Demo Logic
+        if (!request.data?.board_id) return;
+        createDemoDmBoard(userId, request.data.board_id);
+        createDemoNotification(
+          userId,
+          'match',
+          'マッチング成立！',
+          `${request.sender?.name || 'User'}さんとのマッチングが成立しました。`,
+          { board_id: request.data.board_id }
+        );
+        markDemoNotificationAsRead(request.id);
+        alert('承認しました！マッチングが成立しました。トーク画面に移動します。');
+        onNavigate('chat');
+        fetchNotifications();
+        return;
+      }
+
+      // Supabase Logic
+      if (!user || !request.board_id || !request.users?.id) return;
+
+      // 1. Add/Ensure owner in recruitment board
+      const { data: existingOwner } = await supabase.from('board_participants').select('id').eq('board_id', request.board_id).eq('user_id', user.id).maybeSingle();
+      if (!existingOwner) await supabase.from('board_participants').insert({ user_id: user.id, board_id: request.board_id, status: 'accepted' });
+
+      // 2. Add requester to recruitment board (optional, but good for record)
+      const { data: jp } = await supabase.from('board_participants').select('id').eq('board_id', request.board_id).eq('user_id', request.users.id).maybeSingle();
+      if (jp) await supabase.from('board_participants').update({ status: 'accepted' }).eq('id', jp.id);
+      else await supabase.from('board_participants').insert({ user_id: request.users.id, board_id: request.board_id, status: 'accepted' });
+
+      // 3. Send system message
+      const { data: approver } = await supabase.from('users').select('name').eq('id', user.id).single();
+      const msg = HEART_APPROVED_MESSAGE_TEMPLATE
+        .replace('[APPROVER]', approver?.name || 'ユーザー')
+        .replace('[USERNAME]', request.users?.name || 'ユーザー');
+      await supabase.from('message').insert({ board_id: request.board_id, user_id: user.id, is_system: true, content: msg });
+
+      // 4. Create/Find DM Board
+      const { data: myBoards } = await supabase.from('board_participants').select('board_id').eq('user_id', user.id);
+      const { data: theirBoards } = await supabase.from('board_participants').select('board_id').eq('user_id', request.users.id);
+      const myIds = new Set(myBoards?.map(b => b.board_id));
+      const shared = theirBoards?.filter(b => myIds.has(b.board_id)).map(b => b.board_id) || [];
+
+      let dmId = null;
+      if (shared.length > 0) {
+        const { data: dms } = await supabase.from('board').select('id').in('id', shared).eq('purpose', 'DM').limit(1);
+        if (dms && dms.length > 0) dmId = dms[0].id;
+      }
+
+      if (!dmId) {
+        const { data: newBoard, error: cErr } = await supabase.from('board').insert({
+          user_id: user.id,
+          title: `Chat: ${request.users.name}`,
+          purpose: 'DM',
+          limit_count: 2
+        }).select().single();
+        if (cErr) throw cErr;
+        dmId = newBoard.id;
+        await supabase.from('board_participants').insert([
+          { board_id: dmId, user_id: user.id, status: 'accepted' },
+          { board_id: dmId, user_id: request.users.id, status: 'accepted' }
+        ]);
+      }
+
+      setNotifications(prev => prev.filter(r => r.id !== request.id));
+      alert('承認しました！マッチングが成立しました。トーク画面に移動します。');
+      onNavigate('chat');
+
+    } catch (err) {
+      console.error(err);
+      alert('承認に失敗しました');
+    } finally {
+      setProcessingRequest(null);
+    }
+  };
+
+  const handleReject = async (requestId: string) => {
+    if (shouldUseDemoBoards) {
+      markDemoNotificationAsRead(requestId);
+      fetchNotifications();
+      return;
+    }
+
+    setProcessingRequest(requestId);
+    try {
+      const { error } = await supabase.from('like').delete().eq('id', requestId);
+      if (error) throw error;
+      setNotifications(prev => prev.filter(r => r.id !== requestId));
+    } catch (err) {
+      console.error(err);
+      alert('失敗しました');
+    } finally {
+      setProcessingRequest(null);
     }
   };
 
@@ -292,7 +523,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
     }
   };
 
-  if (loading) {
+  if (loading && boards.length === 0 && notifications.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <LoadingSpinner size="lg" />
@@ -307,51 +538,140 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
           <Users className="h-8 w-8 text-purple-500" />
           <h1 className="text-2xl font-bold text-gray-900">募集掲示板</h1>
         </div>
-        <p className="text-gray-600">気になるプロジェクトを見つけて参加しましょう</p>
+        <p className="text-gray-600">参加したいプロジェクトを見つけよう</p>
       </div>
 
-      <div className="flex flex-wrap gap-3 justify-center">
-        <Button
-          variant={activeList === 'my_posts' ? 'primary' : 'outline'}
-          size="sm"
+      <div className="flex border-b border-gray-200 mb-6">
+        <button
           onClick={() => setActiveList('my_posts')}
           disabled={!userId}
+          className={`flex-1 pb-3 text-sm font-medium transition-colors relative ${activeList === 'my_posts'
+            ? 'text-purple-600 border-b-2 border-purple-600'
+            : 'text-gray-500 hover:text-gray-700'
+            }`}
         >
           自分の募集
-        </Button>
-        <Button
-          variant={activeList === 'liked_posts' ? 'primary' : 'outline'}
-          size="sm"
+        </button>
+        <button
           onClick={() => setActiveList('liked_posts')}
           disabled={!userId || shouldUseDemoBoards}
+          className={`flex-1 pb-3 text-sm font-medium transition-colors relative ${activeList === 'liked_posts'
+            ? 'text-purple-600 border-b-2 border-purple-600'
+            : 'text-gray-500 hover:text-gray-700'
+            }`}
         >
-          お気に入り
-        </Button>
-        <Button
-          variant={activeList === 'notifications' ? 'primary' : 'outline'}
-          size="sm"
+          いいねした募集
+        </button>
+        <button
           onClick={() => setActiveList('notifications')}
           disabled={!userId}
+          className={`flex-1 pb-3 text-sm font-medium transition-colors relative flex items-center justify-center gap-2 ${activeList === 'notifications'
+            ? 'text-purple-600 border-b-2 border-purple-600'
+            : 'text-gray-500 hover:text-gray-700'
+            }`}
         >
-          通知
-        </Button>
+          <Bell className="h-4 w-4" />
+          <span>通知</span>
+          {unreadCount > 0 && (
+            <span className="ml-1 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
+              {unreadCount}
+            </span>
+          )}
+        </button>
       </div>
 
       {activeList === 'notifications' ? (
-        <div className="text-center py-12 space-y-4">
-          <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
-            <div className="relative">
-              <Bell className="h-12 w-12 text-gray-400" />
-              {/* <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-400 rounded-full border-2 border-white"></div> */}
+        <>
+          {shouldUseDemoBoards && (
+            <div className="mb-4 flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  createDemoNotification(
+                    userId,
+                    'like_received',
+                    'いいねリクエスト',
+                    'test7さんがあなたの募集にいいねしました',
+                    { board_id: 'demo-board-test', partner_id: 'demo-user-test' },
+                    { name: 'test7', photo: null }
+                  );
+                  fetchNotifications();
+                }}
+              >
+                デモ: テスト通知を受信
+              </Button>
             </div>
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-lg font-medium text-gray-900">通知はありません</h3>
-            <p className="text-gray-500">
-              新しいお知らせが届くとここに表示されます。
-            </p>
-          </div>
-        </div>
+          )}
+          {notifications.length === 0 ? (
+            <div className="text-center py-12 space-y-4">
+              <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
+                <Bell className="h-12 w-12 text-gray-400" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium text-gray-900">通知がありません</h3>
+                <p className="text-gray-500">いいねのリクエストが来たらここに表示されます</p>
+              </div>
+            </div>
+          ) : (
+            notifications.map((request) => (
+              <div
+                key={request.id}
+                className="bg-white rounded-xl shadow-md p-6 space-y-4 border border-gray-100"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                      {request.users?.photo ? (
+                        <img
+                          src={request.users.photo}
+                          alt="Avatar"
+                          className="w-full h-full rounded-full object-cover"
+                        />
+                      ) : (
+                        <UserIcon className="h-6 w-6 text-white" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">{request.users?.name || 'User'}</p>
+                      <p className="text-sm text-gray-500">
+                        {request.board?.title ? `${request.board.title}にいいねしました` : (request.message || 'いいねしました')}
+                      </p>
+                      <div className="flex items-center space-x-2 text-xs text-gray-400 mt-1">
+                        <Calendar className="h-3 w-3" />
+                        <span>{request.created_at ? formatDate(request.created_at) : '不明'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {(!request.is_read || request.type === 'like_received' || !request.type) && (
+                  <div className="flex space-x-2">
+                    <Button
+                      onClick={() => handleApprove(request)}
+                      loading={processingRequest === request.id}
+                      disabled={processingRequest !== null}
+                      className="flex-1 bg-green-600 hover:bg-green-700"
+                    >
+                      <Check className="h-4 w-4 mr-1" />
+                      承認
+                    </Button>
+                    <Button
+                      onClick={() => handleReject(request.id)}
+                      loading={processingRequest === request.id}
+                      disabled={processingRequest !== null}
+                      variant="outline"
+                      className="flex-1 border-red-300 text-red-600 hover:bg-red-50"
+                    >
+                      <X className="h-4 w-4 mr-1" />
+                      非承認
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </>
       ) : boards.length === 0 ? (
         <div className="text-center py-12 space-y-4">
           <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center mx-auto">
@@ -432,6 +752,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
                       </Button>
                     </div>
                   )}
+                  {/* User logic: remove join button */}
                 </div>
               </div>
             );

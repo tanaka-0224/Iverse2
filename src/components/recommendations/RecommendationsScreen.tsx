@@ -9,11 +9,9 @@ import {
   listDemoBoards,
   toggleDemoLike,
   getDemoLikes,
-  checkDemoMutualLike,
-  createDemoDmBoard,
-  DemoBoardRecord
+  createDemoNotification
 } from '../../lib/demoBoards';
-import { sendAutoMessage } from '../../lib/autoMessage';
+
 
 interface Board {
   id: string;
@@ -81,7 +79,7 @@ export default function RecommendationsScreen({
               created_at: liked.created_at,
               updated_at: liked.updated_at,
               users: {
-                name: liked.owner_name,
+                name: liked.owner_name || 'Unknown',
                 photo: null
               }
             });
@@ -104,7 +102,7 @@ export default function RecommendationsScreen({
             created_at: b.created_at,
             updated_at: b.updated_at,
             users: {
-              name: b.owner_name,
+              name: b.owner_name || 'Unknown',
               photo: null
             }
           }));
@@ -323,9 +321,30 @@ export default function RecommendationsScreen({
         toggleDemoLike(boardId, user.id);
         setLikedBoardIds(prev => new Set([...prev, boardId]));
 
+        // Create notification for the board owner (Like Request)
+        // In demo mode, we need to find the board owner's ID.
+        // Since we don't have the full board object here easily without fetching,
+        // we can rely on the fact that listDemoBoards() is synchronous and fast.
+        const allBoards = listDemoBoards();
+        const targetBoard = allBoards.find(b => b.id === boardId);
+
+        if (targetBoard) {
+          createDemoNotification(
+            targetBoard.user_id, // Send to board owner
+            'like_received',
+            'いいねリクエスト',
+            `${user.email?.split('@')[0] || 'User'}さんがあなたの募集にいいねしました`,
+            { board_id: boardId, partner_id: user.id },
+            {
+              name: user.email?.split('@')[0] || 'User',
+              photo: null // You might want to pass actual photo if available
+            }
+          );
+        }
+
         moveToNext();
         await fetchRecommendations();
-        await checkForMatch(boardId);
+
       } catch (error) {
         console.error('Demo like error:', error);
       } finally {
@@ -342,7 +361,7 @@ export default function RecommendationsScreen({
       }
 
       // ボードの作成者を取得
-      const { data: boardData, error: boardError } = await supabase
+      const { error: boardError } = await supabase
         .from('board')
         .select('user_id, title')
         .eq('id', boardId)
@@ -379,7 +398,7 @@ export default function RecommendationsScreen({
       await fetchRecommendations();
 
       // Check for mutual like and create match
-      await checkForMatch(boardId);
+      // await checkForMatch(boardId); // Removed auto-match logic
     } catch (error) {
       console.error('Error handling like:', error);
       alert('いいねの追加に失敗しました: ' + (error as Error).message);
@@ -453,97 +472,7 @@ export default function RecommendationsScreen({
     });
   };
 
-  const checkForMatch = async (boardId: string) => {
-    if (!user) return;
 
-    if (shouldUseDemoBoards) {
-      const isMutual = checkDemoMutualLike(user.id, boardId);
-      if (isMutual) {
-        createDemoDmBoard(user.id, boardId);
-        alert('マッチング成立！トーク画面に移動します。');
-        onNavigate('chat');
-      }
-      return;
-    }
-
-    try {
-      // Get the board owner
-      const { data: board, error: boardError } = await supabase
-        .from('board')
-        .select('user_id, title')
-        .eq('id', boardId)
-        .single();
-
-      if (boardError) throw boardError;
-
-      // Check if board owner also liked current user's board
-      const { data: mutualLikes, error: likesError } = await supabase
-        .from('like')
-        .select('*')
-        .eq('user_id', board.user_id)
-        .in('board_id', (await supabase
-          .from('board')
-          .select('id')
-          .eq('user_id', user.id)).data?.map(p => p.id) || []);
-
-      if (likesError) throw likesError;
-
-      if (mutualLikes && mutualLikes.length > 0) {
-        // Mutual like confirmed!
-
-        // Check if DM board already exists
-        const { data: myBoards } = await supabase.from('board_participants').select('board_id').eq('user_id', user.id);
-        const { data: theirBoards } = await supabase.from('board_participants').select('board_id').eq('user_id', board.user_id);
-
-        const myBoardIds = new Set(myBoards?.map(b => b.board_id));
-        const sharedBoardIds = theirBoards?.filter(b => myBoardIds.has(b.board_id)).map(b => b.board_id) || [];
-
-        let dmBoardId = null;
-
-        if (sharedBoardIds.length > 0) {
-          // Check if any shared board is a DM board
-          const { data: dmBoards } = await supabase
-            .from('board')
-            .select('id')
-            .in('id', sharedBoardIds)
-            .eq('purpose', 'DM')
-            .limit(1);
-
-          if (dmBoards && dmBoards.length > 0) {
-            dmBoardId = dmBoards[0].id;
-          }
-        }
-
-        if (!dmBoardId) {
-          // Create new DM board
-          const { data: newBoard, error: createError } = await supabase
-            .from('board')
-            .insert({
-              user_id: user.id, // Creator
-              title: `Chat: ${board.title}`, // Contextual title
-              purpose: 'DM',
-              limit_count: 2
-            })
-            .select()
-            .single();
-
-          if (createError) throw createError;
-          dmBoardId = newBoard.id;
-
-          // Add participants
-          await supabase.from('board_participants').insert([
-            { board_id: dmBoardId, user_id: user.id, status: 'accepted' },
-            { board_id: dmBoardId, user_id: board.user_id, status: 'accepted' }
-          ]);
-        }
-
-        alert('マッチング成立！トーク画面に移動します。');
-        onNavigate('chat');
-      }
-    } catch (error) {
-      console.error('Error checking for match:', error);
-    }
-  };
 
   return (
     <div className="flex flex-col h-full max-h-[calc(100vh-8rem)] pb-6 overflow-hidden">
