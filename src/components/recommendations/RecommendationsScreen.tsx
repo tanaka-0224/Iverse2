@@ -9,7 +9,9 @@ import {
   listDemoBoards,
   toggleDemoLike,
   getDemoLikes,
-  createDemoNotification
+  createDemoNotification,
+  findDemoDmBoard,
+  deleteDemoBoardRecord
 } from '../../lib/demoBoards';
 
 
@@ -414,6 +416,19 @@ export default function RecommendationsScreen({
 
     if (shouldUseDemoBoards) {
       try {
+        // Check for existing DM board and delete it
+        // We need to find the partner ID. We have boardId.
+        const allBoards = listDemoBoards();
+        const targetBoard = allBoards.find(b => b.id === boardId);
+
+        if (targetBoard) {
+          const dmBoardId = findDemoDmBoard(user.id, targetBoard.user_id);
+          if (dmBoardId) {
+            deleteDemoBoardRecord(dmBoardId);
+            console.log(`[Recommendations] Demo DM board ${dmBoardId} deleted due to unlike.`);
+          }
+        }
+
         toggleDemoLike(boardId, user.id); // Toggles off if exists
         setLikedBoardIds(prev => {
           const newSet = new Set(prev);
@@ -430,7 +445,49 @@ export default function RecommendationsScreen({
     }
 
     try {
-      // いいね解除
+      // 1. Get the board owner to find the partner ID
+      const { data: boardData, error: boardError } = await supabase
+        .from('board')
+        .select('user_id')
+        .eq('id', boardId)
+        .single();
+
+      if (boardError) throw boardError;
+      const partnerId = boardData.user_id;
+
+      // 2. Find if there is a DM board between these users
+      // Check for mutual participation in a DM board
+      const { data: myBoards } = await supabase.from('board_participants').select('board_id').eq('user_id', user.id);
+      const { data: theirBoards } = await supabase.from('board_participants').select('board_id').eq('user_id', partnerId);
+
+      const myBoardIds = new Set(myBoards?.map(b => b.board_id));
+      const sharedBoardIds = theirBoards?.filter(b => myBoardIds.has(b.board_id)).map(b => b.board_id) || [];
+
+      if (sharedBoardIds.length > 0) {
+        const { data: dmBoards } = await supabase
+          .from('board')
+          .select('id')
+          .in('id', sharedBoardIds)
+          .eq('purpose', 'DM');
+
+        if (dmBoards && dmBoards.length > 0) {
+          const idsToDelete = dmBoards.map(b => b.id);
+          console.log('[Recommendations] Deleting DM boards:', idsToDelete);
+
+          // Explicitly delete participants and messages first to ensure no FK errors
+          await supabase.from('board_participants').delete().in('board_id', idsToDelete);
+          await supabase.from('message').delete().in('board_id', idsToDelete);
+
+          const { error: deleteError } = await supabase.from('board').delete().in('id', idsToDelete);
+          if (deleteError) {
+            console.error('[Recommendations] Failed to delete board:', deleteError);
+            throw deleteError;
+          }
+          console.log(`[Recommendations] DM boards deleted successfully.`);
+        }
+      }
+
+      // 3. Delete the like
       const { error } = await supabase
         .from('like')
         .delete()
