@@ -28,10 +28,15 @@ export default function AuthForm({ mode, onModeChange, onSuccess }: AuthFormProp
     try {
       if (mode === 'register') {
         await signUp(email, password, name);
+        // 新規登録成功時はlocalStorageにフラグを保存
+        localStorage.setItem('showWelcomeModal', 'true');
+        onSuccess();
       } else {
         await signIn(email, password);
+        // ログイン成功時もlocalStorageにフラグを保存
+        localStorage.setItem('showWelcomeModal', 'true');
+        onSuccess();
       }
-      onSuccess();
     } catch (err: any) {
       setError(err.message || 'エラーが発生しました');
     } finally {
