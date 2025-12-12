@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
-import { HEART_APPROVED_MESSAGE_TEMPLATE } from '../../constants/messages';
+const HEART_APPROVED_MESSAGE_TEMPLATE = 'いいねリクエストが承認されました！';
 
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Button from '../ui/Button';
@@ -218,17 +218,21 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
       const all = listDemoBoards().map(mapDemoBoardToCard);
       const filtered =
         activeList === 'my_posts'
-          ? all.filter((board) => board.user_id === userId)
+          ? all.filter((board) => board.user_id === userId && board.purpose !== 'DM')
           : activeList === 'liked_posts'
             ? [] // Demo likes logic handled separately if needed for liked_posts tab content
             : all;
 
       if (activeList === 'liked_posts') {
-        // Filter by liked
-        // We need to implement getDemoLikes properly or similar
-        // For now, let's just leave it empty or implement basic
+        // ... (existing code)
         setBoards([]);
       } else {
+        console.log('[PostBoardScreen] Demo Filter Debug:', {
+          activeList,
+          total: all.length,
+          filtered: filtered.length,
+          sample: filtered.length > 0 ? filtered[0] : 'None'
+        });
         setBoards(filtered);
       }
 
@@ -261,7 +265,8 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
           setLoading(false);
           return;
         }
-        query = query.eq('user_id', userId);
+        query = query.eq('user_id', userId).neq('purpose', 'DM'); // Exclude DM boards
+        console.log('[PostBoardScreen] Supabase Query Debug: Excluded DM for user', userId);
       } else if (activeList === 'liked_posts') {
         if (!userId) {
           setBoards([]);

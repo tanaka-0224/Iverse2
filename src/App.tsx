@@ -8,7 +8,6 @@ import PostBoardScreen from './components/posts/PostBoardScreen';
 import ChatScreen from './components/chat/ChatScreen';
 import AccountScreen from './components/account/AccountScreen';
 import LoadingSpinner from './components/ui/LoadingSpinner';
-import DemoBanner from './components/ui/DemoBanner';
 
 function App() {
   const { user, loading } = useAuth();
@@ -37,10 +36,10 @@ function App() {
     switch (activeScreen) {
       case 'recommendations':
         return <RecommendationsScreen onNavigate={setActiveScreen} />;
-      case 'post':          
-          return <PostBoardScreen onNavigate={setActiveScreen} />;
+      case 'post':
+        return <PostBoardScreen onNavigate={setActiveScreen} />;
       case 'createpost':
-          return <CreatePostScreen onNavigate={setActiveScreen} />;
+        return <CreatePostScreen onNavigate={setActiveScreen} />;
       case 'board':
         return <PostBoardScreen onNavigate={setActiveScreen} />;
       case 'chat':
@@ -52,19 +51,19 @@ function App() {
     }
   };
 
-  const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
-  const displayName =
-    user?.user_metadata?.name ||
-    user?.email?.split('@')[0] ||
-    null;
-  const shouldShowDemoBanner =
-    isDemoUser && (!displayName || displayName === 'Demo User');
+  // const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
+  // const displayName =
+  //   user?.user_metadata?.name ||
+  //   user?.email?.split('@')[0] ||
+  //   null;
+  // const shouldShowDemoBanner =
+  //   isDemoUser && (!displayName || displayName === 'Demo User');
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
       <div className="max-w-md mx-auto bg-white min-h-screen">
         <div className="px-4 py-6 pb-20">
-          {shouldShowDemoBanner && <DemoBanner />}
+          {/* Demo Banner removed */}
           {renderScreen()}
         </div>
         <BottomNav activeTab={activeScreen} onTabChange={setActiveScreen} />

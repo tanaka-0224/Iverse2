@@ -65,16 +65,37 @@ export const updateDemoBoardRecord = (
   return boards[index];
 };
 
+// Cascade delete participants and messages and notifications
 export const deleteDemoBoardRecord = (id: string): boolean => {
   const boards = readBoards();
   const initialLength = boards.length;
-  const filtered = boards.filter((board) => board.id !== id);
+  const filteredBoards = boards.filter((board) => board.id !== id);
 
-  if (filtered.length === initialLength) {
+  if (filteredBoards.length === initialLength) {
     return false;
   }
+  writeBoards(filteredBoards);
 
-  writeBoards(filtered);
+  // Delete participants
+  const participants = readParticipants();
+  const filteredParticipants = participants.filter(p => p.board_id !== id);
+  writeParticipants(filteredParticipants);
+
+  // Delete messages
+  const messages = readMessages();
+  const filteredMessages = messages.filter(m => m.board_id !== id);
+  writeMessages(filteredMessages);
+
+  // Delete notifications related to this board
+  const notifications = readNotifications();
+  const filteredNotifications = notifications.filter(n => n.data?.board_id !== id);
+  writeNotifications(filteredNotifications);
+
+  // Also delete likes for this board
+  const likes = readLikes();
+  const filteredLikes = likes.filter(l => l.board_id !== id);
+  writeLikes(filteredLikes);
+
   return true;
 };
 
@@ -216,9 +237,6 @@ export const createDemoDmBoard = (userA: string, userB: string): string | null =
 
 export const findDemoDmBoard = (userA: string, userB: string): string | null => {
   const boards = readBoards();
-  // Also check for new single-name format: `Chat: UserB` (created by UserA) or `Chat: UserA` (created by UserB)
-  // But in `handleApprove` we implemented: `Chat: ${likeRequest.users.name}`
-
   // A robust way in demo mode is to check participants.
   const participants = readParticipants();
 
@@ -233,6 +251,8 @@ export const findDemoDmBoard = (userA: string, userB: string): string | null => 
 
   return dmBoard ? dmBoard.id : null;
 };
+
+
 
 // Helper to list boards user is participating in (for ChatScreen)
 export const listDemoParticipatingBoards = (userId: string): DemoBoardRecord[] => {

@@ -423,6 +423,7 @@ export default function RecommendationsScreen({
 
         if (targetBoard) {
           const dmBoardId = findDemoDmBoard(user.id, targetBoard.user_id);
+
           if (dmBoardId) {
             deleteDemoBoardRecord(dmBoardId);
             console.log(`[Recommendations] Demo DM board ${dmBoardId} deleted due to unlike.`);
