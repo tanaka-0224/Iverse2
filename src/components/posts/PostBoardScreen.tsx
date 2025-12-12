@@ -344,6 +344,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
       const myIds = new Set(myBoards?.map(b => b.board_id));
       const shared = theirBoards?.filter(b => myIds.has(b.board_id)).map(b => b.board_id) || [];
 
+
       let dmId = null;
       if (shared.length > 0) {
         const { data: dms } = await supabase.from('board').select('id').in('id', shared).eq('purpose', 'DM').limit(1);
