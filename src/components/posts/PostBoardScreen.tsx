@@ -621,7 +621,14 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                    <button
+                      onClick={() => {
+                        if (request.users?.id) {
+                          onNavigate(`profile:${request.users.id}`);
+                        }
+                      }}
+                      className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
+                    >
                       {request.users?.photo ? (
                         <img
                           src={request.users.photo}
@@ -631,7 +638,7 @@ export default function PostBoardScreen({ onNavigate }: PostBoardScreenProps) {
                       ) : (
                         <UserIcon className="h-6 w-6 text-white" />
                       )}
-                    </div>
+                    </button>
                     <div>
                       <p className="font-medium text-gray-900">{request.users?.name || 'User'}</p>
                       <p className="text-sm text-gray-500">

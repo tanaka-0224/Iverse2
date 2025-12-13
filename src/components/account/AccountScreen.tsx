@@ -29,13 +29,30 @@ const emptyProfileFields: ProfileFields = {
   purpose: '',
 };
 
-export default function AccountScreen() {
+interface AccountScreenProps {
+  viewUserId?: string;
+  onNavigate?: (screen: string) => void;
+}
+
+export default function AccountScreen({ viewUserId, onNavigate }: AccountScreenProps = {} as AccountScreenProps) {
   const { user, signOut } = useAuth();
-  const { profile, loading: profileLoading, updateProfile } = useProfile(
-    user?.id,
-    user?.email,
-    user?.user_metadata?.name || user?.email?.split('@')[0] || null,
+  const isViewingOtherUser = Boolean(viewUserId && viewUserId !== user?.id);
+  
+  // 他のユーザーのプロフィールを表示する場合
+  const { profile: viewedProfile, loading: viewedProfileLoading } = useProfile(
+    isViewingOtherUser ? viewUserId : undefined,
   );
+  
+  // 自分のプロフィールの場合
+  const { profile, loading: profileLoading, updateProfile } = useProfile(
+    !isViewingOtherUser ? user?.id : undefined,
+    !isViewingOtherUser ? user?.email : undefined,
+    !isViewingOtherUser ? (user?.user_metadata?.name || user?.email?.split('@')[0] || null) : undefined,
+  );
+  
+  // 表示するプロフィールを決定
+  const displayProfile = isViewingOtherUser ? viewedProfile : profile;
+  const isLoading = isViewingOtherUser ? viewedProfileLoading : profileLoading;
   const [editing, setEditing] = useState(false);
   const [formData, setFormData] = useState<ProfileFields>(emptyProfileFields);
   const [savedData, setSavedData] = useState<ProfileFields>(emptyProfileFields);
@@ -49,6 +66,8 @@ export default function AccountScreen() {
   const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
 
   React.useEffect(() => {
+    if (isViewingOtherUser) return; // 他のユーザーのプロフィール表示時は編集フォームを更新しない
+    
     const nextData: ProfileFields = {
       display_name: profile?.display_name || '',
       skill: profile?.skill || '',
@@ -62,7 +81,7 @@ export default function AccountScreen() {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-  }, [profile]);
+  }, [profile, isViewingOtherUser]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -182,7 +201,7 @@ export default function AccountScreen() {
     }
   };
 
-  if (profileLoading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
         <LoadingSpinner size="lg" />
@@ -190,16 +209,42 @@ export default function AccountScreen() {
     );
   }
 
-  const avatarPreview = previewUrl || avatarUrl || null;
+  const avatarPreview = isViewingOtherUser 
+    ? displayProfile?.avatar_url || null
+    : (previewUrl || avatarUrl || null);
+  
+  const displayName = isViewingOtherUser
+    ? displayProfile?.display_name || 'Anonymous'
+    : ((editing ? formData.display_name : savedData.display_name) || 'Anonymous');
+  
+  const displaySkill = isViewingOtherUser
+    ? displayProfile?.skill || 'まだスキルが設定されていません'
+    : (savedData.skill || 'まだスキルが設定されていません');
+  
+  const displayPurpose = isViewingOtherUser
+    ? displayProfile?.purpose || 'まだ目的が設定されていません'
+    : (savedData.purpose || 'まだ目的が設定されていません');
 
   return (
     <div className="space-y-6">
       <div className="text-center space-y-2">
         <div className="flex items-center justify-center space-x-2">
           <UserIcon className="h-8 w-8 text-indigo-500" />
-          <h1 className="text-2xl font-bold text-gray-900">アカウント</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {isViewingOtherUser ? 'プロフィール' : 'アカウント'}
+          </h1>
         </div>
-        <p className="text-gray-600">プロフィール情報を管理</p>
+        <p className="text-gray-600">
+          {isViewingOtherUser ? 'ユーザーのプロフィール' : 'プロフィール情報を管理'}
+        </p>
+        {isViewingOtherUser && onNavigate && (
+          <button
+            onClick={() => onNavigate('post')}
+            className="text-sm text-indigo-600 hover:text-indigo-800 mt-2"
+          >
+            ← 戻る
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-3xl shadow-xl p-6 space-y-6">
@@ -216,13 +261,29 @@ export default function AccountScreen() {
             )}
           </div>
           <h2 className="text-xl font-semibold text-gray-900">
-            {(editing ? formData.display_name : savedData.display_name) || 'Anonymous'}
+            {displayName}
           </h2>
           {/* メールアドレスは非表示にする */}
           <p className="text-gray-500 sr-only">{user?.email}</p>
         </div>
 
-        {editing ? (
+        {isViewingOtherUser ? (
+          // 他のユーザーのプロフィール表示（編集不可）
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-2xl p-4 space-y-1">
+              <h3 className="text-xs font-bold tracking-wide text-gray-500 uppercase">スキル</h3>
+              <p className="text-gray-900 text-base">
+                {displaySkill}
+              </p>
+            </div>
+            <div className="bg-gray-50 rounded-2xl p-4 space-y-1">
+              <h3 className="text-xs font-bold tracking-wide text-gray-500 uppercase">目的</h3>
+              <p className="text-gray-900 text-base whitespace-pre-line">
+                {displayPurpose}
+              </p>
+            </div>
+          </div>
+        ) : editing ? (
           <div className="space-y-4">
             <Input
               name="display_name"
@@ -306,13 +367,13 @@ export default function AccountScreen() {
             <div className="bg-gray-50 rounded-2xl p-4 space-y-1">
               <h3 className="text-xs font-bold tracking-wide text-gray-500 uppercase">スキル</h3>
               <p className="text-gray-900 text-base">
-                {savedData.skill || 'まだスキルが設定されていません'}
+                {displaySkill}
               </p>
             </div>
             <div className="bg-gray-50 rounded-2xl p-4 space-y-1">
               <h3 className="text-xs font-bold tracking-wide text-gray-500 uppercase">目的</h3>
               <p className="text-gray-900 text-base whitespace-pre-line">
-                {savedData.purpose || 'まだ目的が設定されていません'}
+                {displayPurpose}
               </p>
             </div>
 
@@ -328,47 +389,51 @@ export default function AccountScreen() {
         )}
       </div>
 
-      <div className="bg-white rounded-3xl shadow-lg p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
-          <Settings className="h-5 w-5" />
-          <span>設定</span>
-        </h3>
+      {!isViewingOtherUser && (
+        <>
+          <div className="bg-white rounded-3xl shadow-lg p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900 flex items-center space-x-2">
+              <Settings className="h-5 w-5" />
+              <span>設定</span>
+            </h3>
 
-        <div className="space-y-3">
-          <button 
-            onClick={() => setShowTermsModal(true)}
-            className="w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200 flex items-center space-x-3"
-          >
-            <Shield className="h-5 w-5 text-gray-600" />
-            <div>
-              <p className="font-medium text-gray-900">利用規約</p>
-              <p className="text-sm text-gray-500">サービスの利用規約を確認</p>
+            <div className="space-y-3">
+              <button 
+                onClick={() => setShowTermsModal(true)}
+                className="w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200 flex items-center space-x-3"
+              >
+                <Shield className="h-5 w-5 text-gray-600" />
+                <div>
+                  <p className="font-medium text-gray-900">利用規約</p>
+                  <p className="text-sm text-gray-500">サービスの利用規約を確認</p>
+                </div>
+              </button>
+
+              <button 
+                onClick={() => setShowPrivacyModal(true)}
+                className="w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200 flex items-center space-x-3"
+              >
+                <Shield className="h-5 w-5 text-gray-600" />
+                <div>
+                  <p className="font-medium text-gray-900">プライバシーポリシー</p>
+                  <p className="text-sm text-gray-500">個人情報の取り扱いについて</p>
+                </div>
+              </button>
             </div>
-          </button>
+          </div>
 
-          <button 
-            onClick={() => setShowPrivacyModal(true)}
-            className="w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200 flex items-center space-x-3"
-          >
-            <Shield className="h-5 w-5 text-gray-600" />
-            <div>
-              <p className="font-medium text-gray-900">プライバシーポリシー</p>
-              <p className="text-sm text-gray-500">個人情報の取り扱いについて</p>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-lg p-6">
-        <Button
-          onClick={handleLogout}
-          variant="outline"
-          className="w-full flex items-center justify-center space-x-2 text-red-600 hover:text-red-800 hover:bg-red-50 border-red-200"
-        >
-          <LogOut className="h-4 w-4" />
-          <span>ログアウト</span>
-        </Button>
-      </div>
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <Button
+              onClick={handleLogout}
+              variant="outline"
+              className="w-full flex items-center justify-center space-x-2 text-red-600 hover:text-red-800 hover:bg-red-50 border-red-200"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>ログアウト</span>
+            </Button>
+          </div>
+        </>
+      )}
 
       <TermsModal 
         isOpen={showTermsModal} 
