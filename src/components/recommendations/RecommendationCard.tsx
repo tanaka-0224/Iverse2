@@ -98,9 +98,11 @@ export default function RecommendationCard({
             {/* したいこと */}
             <div>
               <p className="text-xs font-semibold text-gray-700 mb-1">したいこと</p>
-              <p className="text-gray-700 text-xs leading-relaxed line-clamp-3">
-                {board.purpose || '記載なし'}
-              </p>
+              <div className="max-h-32 overflow-y-auto">
+                <p className="text-gray-700 text-xs leading-relaxed whitespace-pre-line">
+                  {board.purpose || '記載なし'}
+                </p>
+              </div>
             </div>
             
             {/* 人数情報 */}
