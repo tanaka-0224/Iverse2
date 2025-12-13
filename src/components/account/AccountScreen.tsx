@@ -5,6 +5,7 @@ import Button from '../ui/Button';
 import Input from '../ui/Input';
 import TextArea from '../ui/TextArea';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import TermsModal from '../ui/TermsModal';
 import { User as UserIcon, Settings, Shield, LogOut, Save } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -43,6 +44,8 @@ export default function AccountScreen() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const isDemoUser = Boolean(user?.id?.startsWith('demo-'));
 
   React.useEffect(() => {
@@ -332,7 +335,10 @@ export default function AccountScreen() {
         </h3>
 
         <div className="space-y-3">
-          <button className="w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200 flex items-center space-x-3">
+          <button 
+            onClick={() => setShowTermsModal(true)}
+            className="w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200 flex items-center space-x-3"
+          >
             <Shield className="h-5 w-5 text-gray-600" />
             <div>
               <p className="font-medium text-gray-900">利用規約</p>
@@ -340,7 +346,10 @@ export default function AccountScreen() {
             </div>
           </button>
 
-          <button className="w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200 flex items-center space-x-3">
+          <button 
+            onClick={() => setShowPrivacyModal(true)}
+            className="w-full text-left p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors duration-200 flex items-center space-x-3"
+          >
             <Shield className="h-5 w-5 text-gray-600" />
             <div>
               <p className="font-medium text-gray-900">プライバシーポリシー</p>
@@ -360,6 +369,17 @@ export default function AccountScreen() {
           <span>ログアウト</span>
         </Button>
       </div>
+
+      <TermsModal 
+        isOpen={showTermsModal} 
+        onClose={() => setShowTermsModal(false)}
+        type="terms"
+      />
+      <TermsModal 
+        isOpen={showPrivacyModal} 
+        onClose={() => setShowPrivacyModal(false)}
+        type="privacy"
+      />
     </div>
   );
 }
