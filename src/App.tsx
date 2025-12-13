@@ -56,6 +56,12 @@ function App() {
   }
 
   const renderScreen = () => {
+    // プロフィール画面の処理（profile:userId形式）
+    if (activeScreen.startsWith('profile:')) {
+      const viewUserId = activeScreen.replace('profile:', '');
+      return <AccountScreen viewUserId={viewUserId} onNavigate={setActiveScreen} />;
+    }
+
     switch (activeScreen) {
       case 'recommendations':
         return <RecommendationsScreen onNavigate={setActiveScreen} />;
@@ -68,7 +74,7 @@ function App() {
       case 'chat':
         return <ChatScreen onNavigate={setActiveScreen} />;
       case 'account':
-        return <AccountScreen />;
+        return <AccountScreen onNavigate={setActiveScreen} />;
       default:
         return <RecommendationsScreen onNavigate={setActiveScreen} />;
     }
