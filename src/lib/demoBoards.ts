@@ -214,6 +214,26 @@ export const createDemoDmBoard = (userA: string, userB: string): string | null =
   return newBoard.id;
 };
 
+export const findDemoDmBoard = (userA: string, userB: string): string | null => {
+  const boards = readBoards();
+  // Also check for new single-name format: `Chat: UserB` (created by UserA) or `Chat: UserA` (created by UserB)
+  // But in `handleApprove` we implemented: `Chat: ${likeRequest.users.name}`
+
+  // A robust way in demo mode is to check participants.
+  const participants = readParticipants();
+
+  // Find boards where both are participants
+  const userABoards = participants.filter(p => p.user_id === userA).map(p => p.board_id);
+  const userBBoards = participants.filter(p => p.user_id === userB).map(p => p.board_id);
+
+  const sharedBoards = userABoards.filter(id => userBBoards.includes(id));
+
+  // Filter for DM purpose
+  const dmBoard = boards.find(b => sharedBoards.includes(b.id) && b.purpose === 'DM');
+
+  return dmBoard ? dmBoard.id : null;
+};
+
 // Helper to list boards user is participating in (for ChatScreen)
 export const listDemoParticipatingBoards = (userId: string): DemoBoardRecord[] => {
   const participants = readParticipants();

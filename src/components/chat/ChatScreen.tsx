@@ -409,8 +409,8 @@ export default function ChatScreen({ }: ChatScreenProps) {
                     <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}>
                       <div
                         className={`px-4 py-2 rounded-2xl shadow-sm text-sm break-words ${isOwnMessage
-                            ? 'bg-blue-600 text-white rounded-br-none'
-                            : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'
+                          ? 'bg-blue-600 text-white rounded-br-none'
+                          : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'
                           }`}
                       >
                         {msg.content}
@@ -437,13 +437,15 @@ export default function ChatScreen({ }: ChatScreenProps) {
             </div>
           )}
           <form onSubmit={sendMessage} className="flex items-center space-x-2">
-            <Input
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              placeholder="メッセージを入力..."
-              className="flex-1"
-              disabled={sendingMessage}
-            />
+            <div className="flex-1">
+              <Input
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="メッセージを入力..."
+                className="w-full"
+                disabled={sendingMessage}
+              />
+            </div>
             <Button
               type="submit"
               disabled={!newMessage.trim() || sendingMessage}
